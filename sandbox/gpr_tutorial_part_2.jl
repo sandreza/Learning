@@ -87,13 +87,3 @@ end
 scatter(tval, yval, color = :red, title = "Interpolant and Data", xlabel = "time", ylabel = "position" , label = "data")
 plot!(tvalf, interpol, color = :orange, line = :dashed, label = "uncertainty", ribbon = var, width = 0.1)
 plot!(tvalf, interpol, color = :blue, line = :dashed, label = "interpolant", width = 1)
-
-
-𝒢 = construct_gpr(tval, yval, k)
-tmp = randn(length(tvalf))
-cov = similar(tmp)
-for i in 1:length(tmp)
-    tmp[i] = gpr_mean(tvalf[i], 𝒢)
-    cov[i] = gpr_covariance(tvalf[i], 𝒢)
-end
-plot(tvalf,tmp, ribbons = cov)
