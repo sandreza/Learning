@@ -16,13 +16,14 @@ tvalf = uniform_grid(nn, 0, T)
 #we can assume this correlation matrix (or we can change this out for whatever)
 γ = 1.0 #a 'hyperparameter', the value 1.0 works well for this example. Try gamma = 10.0 and 0.1 to see more
 σ = 500.0 #a 'hyperparameter', the value 500 works well for this example.
-function k(x,y; σ=500.0, γ = 1.0)
+δ = 0.0
+function k(x,y; σ=500.0, γ = 1.0, δ = 0.00)
     z = σ*exp(-(x-y)^2 / 2^2 / γ^2)
     #z = 0.5*np.exp(-np.abs(x-y) / 2 / gamma)
     #z = 0.1*np.abs((x-y))
     #z = -0.1*np.abs((x-y))**(0.5)
     if x==y
-        z+= 0.000 #take into account noise in the data, 0.05 is a good value
+        z+= δ #take into account noise in the data, 0.05 is a good value
     else
         z += 0.0
     end
@@ -58,6 +59,7 @@ function gpr_mean(tt , tval , scoeff)
     return y
 end
 
+
 interpol = zeros(nn) #now construct interpolant on fine grid
 
 for i in 1:nn
@@ -82,5 +84,16 @@ for i in 1:nn
     var[i] = k(tvalf[i],tvalf[i]) - dot(tmpv[:,i],tmpv2[:,i])
 end
 
-scatter(tval, yval, color = :red, title = "given data", xlabel = "time", ylabel = "position" , label = "data")
-plot!(tvalf, interpol, color = :blue, line = :dashed, label = "interpolant", ribbon = var)
+scatter(tval, yval, color = :red, title = "Interpolant and Data", xlabel = "time", ylabel = "position" , label = "data")
+plot!(tvalf, interpol, color = :orange, line = :dashed, label = "uncertainty", ribbon = var, width = 0.1)
+plot!(tvalf, interpol, color = :blue, line = :dashed, label = "interpolant", width = 1)
+
+
+𝒢 = construct_gpr(tval, yval, k)
+tmp = randn(length(tvalf))
+cov = similar(tmp)
+for i in 1:length(tmp)
+    tmp[i] = gpr_mean(tvalf[i], 𝒢)
+    cov[i] = gpr_covariance(tvalf[i], 𝒢)
+end
+plot(tvalf,tmp, ribbons = cov)

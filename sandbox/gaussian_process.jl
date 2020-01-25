@@ -1,10 +1,30 @@
 using LinearAlgebra
 using BenchmarkTools
 
-struct GPR{ℱ, 𝒮, 𝒰}
+struct GPR{ℱ, 𝒮, 𝒰, 𝒱}
     kernel::ℱ
-    kstar::𝒮
-    kmat::𝒰
+    data::𝒮
+    predictor::𝒮
+    K::𝒰
+    CK::𝒱
+end
+
+function construct_gpr(x_data, y_data, kernel)
+    K = compute_kernel_matrix(k, x_data)
+    CK = cholesky(K)
+    predictor = CK \ y_data
+    return GPR(kernel, x_data, predictor, K, CK)
+end
+
+function gpr_mean(x, 𝒢::GPR)
+    return 𝒢.predictor' * 𝒢.kernel.(x, 𝒢.data)
+end
+
+function gpr_covariance(x, 𝒢::GPR)
+    tmpv = 𝒢.kernel.(x, 𝒢.data)
+    tmpv2 = 𝒢.CK \ tmpv
+    var = k(x, x) - tmpv'*tmpv2
+    return var
 end
 
 
