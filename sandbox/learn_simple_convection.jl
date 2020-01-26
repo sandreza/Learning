@@ -1,4 +1,6 @@
+using JLD2, LinearAlgebra, Plots
 include("../sandbox/oceananigans_converter.jl")
+include("../sandbox/gaussian_process.jl")
 const save_figure = true
 filename = "./data/high_res_general_strat_16_profiles.jld2"
 data = OceananigansData(filename)
@@ -56,7 +58,7 @@ scatter(gpr_y,zavg)
 # the true check
 # time evolution given the same initial condition
 n = length(data.t)
-set = 1:(n-400)
+set = 1:(n-100)
 gpr_prediction = similar(y[total_set])
 starting = x[1]
 gpr_prediction[1] = starting
@@ -64,7 +66,7 @@ n = length(y[set])
 for i in set
     gpr_prediction[i+1] = prediction([gpr_prediction[i]], 𝒢)
 end
-animation_set = 1:50:(n-400)
+animation_set = 1:30:(n-100)
 anim = @animate for i in animation_set
     exact = data.T[:,i+1]
     day_string = string(floor(Int, data.t[i]/86400))
@@ -73,5 +75,5 @@ anim = @animate for i in animation_set
     display(p1)
 end
 if save_figure == true
-    gif(anim, pwd() * "/figures/gp_emulator.gif", fps = 60)
+    gif(anim, pwd() * "/figures/gp_emulator.gif", fps = 15)
 end

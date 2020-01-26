@@ -1,6 +1,6 @@
 using Plots
 using JLD2
-
+include("../sandbox/gaussian_process.jl")
 data = jldopen("./data/Lorenz63.jld2")
 x = data["x"]
 y = data["y"]
