@@ -51,7 +51,7 @@ function construct_gpr(x_data, y_data, kernel; hyperparameters = [], sparsity_th
         K += mK*sqrt(eps(1.0))*I
     end
 
-    # check sparsity
+    # check sparsity, should make this a seperate Module
     bools = K .> entry_threshold * mK
     sparsity = sum(bools) / length(bools)
     if sparsity < sparsity_threshold

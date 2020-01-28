@@ -1,4 +1,8 @@
+using Flux, Flux.Data.MNIST, Statistics
+using Flux: onehotbatch, onecold, crossentropy, throttle
+using Base.Iterators: repeated
 using JLD2, LinearAlgebra, Plots
+
 include("../sandbox/oceananigans_converter.jl")
 include("../sandbox/gaussian_process.jl")
 const save_figure = true
@@ -35,18 +39,18 @@ y_prediction = prediction([x_data[index_check]], 𝒢)
 norm(y_prediction - y_data[index_check])
 
 
-error = collect(verification_set)*1.0
+gpr_error = collect(verification_set)*1.0
 # greedy check
 for j in eachindex(verification_set)
     test_index = verification_set[j]
     y_prediction = prediction([x[test_index]], 𝒢)
     δ = norm(y_prediction - y[test_index])
     # println(δ)
-    error[j] = δ
+    gpr_error[j] = δ
 end
 histogram(error)
-println("The mean error is " * string(sum(error)/length(error)))
-println("The maximum error is " * string(maximum(error)))
+println("The mean error is " * string(sum(gpr_error)/length(gpr_error)))
+println("The maximum error is " * string(maximum(gpr_error)))
 
 
 ###
@@ -66,12 +70,13 @@ n = length(y[set])
 for i in set
     gpr_prediction[i+1] = prediction([gpr_prediction[i]], 𝒢)
 end
-animation_set = 1:30:(n-100)
+
+animation_set = 1:30:(n-2)
 anim = @animate for i in animation_set
     exact = data.T[:,i+1]
     day_string = string(floor(Int, data.t[i]/86400))
     p1 = scatter(gpr_prediction[i+1], zavg, label = "GP")
-    plot!(exact,data.z, legend = :topleft, label = "LES", xlabel = "temperature", ylabel = "depth", title = "day " * day_string)
+    plot!(exact,data.z, legend = :topleft, label = "LES", xlabel = "temperature", ylabel = "depth", title = "day " * day_string, xlims = (19,20))
     display(p1)
 end
 if save_figure == true
