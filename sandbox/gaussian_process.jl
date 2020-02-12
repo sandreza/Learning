@@ -130,18 +130,17 @@ compute_kernel_matrix(k, x)
 - sK: (symmetric matrix). A symmetric matrix with entries sK[i,j] = k(x[i], x[j]). This is only meaningful if k(x,y) = k(y,x) (it should)
 """
 function compute_kernel_matrix(k, x; hyperparameters = [])
-    n = size(x)[1]
-    K = zeros(n,n)
-    for i in eachindex(x)
-        for j in eachindex(x)
-            if isempty(hyperparameters)
-                K[i,j] = k(x[i], x[j])
-            else
-                K[i,j] = k(x[i], x[j], hyperparameters = hyperparameters)
-            end
-        end
+    if isempty(hyperparameters)
+        K = [k(x[i], x[j]) for i in eachindex(x), j in eachindex(x)]
+    else
+        K = [k(x[i], x[j], hyperparameters = hyperparameters) for i in eachindex(x), j in eachindex(x)]
     end
-    sK = Symmetric(K)
+
+    if typeof(K[1,1]) <: Number
+        sK = Symmetric(K)
+    else
+        sK = K
+    end
     return sK
 end
 

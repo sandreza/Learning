@@ -1,12 +1,11 @@
-using Flux, Flux.Data.MNIST, Statistics
-using Flux: onehotbatch, onecold, crossentropy, throttle
-using Base.Iterators: repeated
+using Statistics
 using JLD2, LinearAlgebra, Plots
 
 include("../sandbox/oceananigans_converter.jl")
 include("../sandbox/gaussian_process.jl")
 const save_figure = true
-filename = "./data/high_res_general_strat_16_profiles.jld2"
+
+filename = pwd() * "/data/high_res_general_strat_16_profiles.jld2"
 data = OceananigansData(filename)
 
 t = data.t
@@ -82,3 +81,9 @@ end
 if save_figure == true
     gif(anim, pwd() * "/figures/gp_emulator.gif", fps = 15)
 end
+
+
+###
+mat = [k(x_data[i], x_data[j]) for i in eachindex(x_data), j in eachindex(x_data)]
+
+𝒢.K .- mat
