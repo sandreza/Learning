@@ -28,7 +28,14 @@ y_data = y[training_set]
 # these are the hyperparameter nobs
 const γ1 = 0.0001
 const σ1 = 1.0
-k(x,y) = σ1 * exp(- γ1 * norm(x-y)^2 )
+function custom_amplitude(x,y)
+    ll = 0.0
+    @inbounds for k in 1:16
+        ll += (x[k]-y[k])^2
+    end
+    return ll
+end
+k(x,y) = σ1 * exp(- γ1 * custom_amplitude(x,y) )
 d(x,y) = norm(x-y)^2
 cc = closure_guassian_closure(d, hyperparameters = [γ1,σ1])
 𝒢 = construct_gpr(x_data, y_data, k)
@@ -47,7 +54,7 @@ for j in eachindex(verification_set)
     # println(δ)
     gpr_error[j] = δ
 end
-histogram(error)
+histogram(gpr_error)
 println("The mean error is " * string(sum(gpr_error)/length(gpr_error)))
 println("The maximum error is " * string(maximum(gpr_error)))
 
@@ -85,5 +92,47 @@ end
 
 ###
 mat = [k(x_data[i], x_data[j]) for i in eachindex(x_data), j in eachindex(x_data)]
+tmp = [prediction([x[i]], 𝒢) for i in eachindex(x)]
+tmp = [uncertainty(x[i], 𝒢) for i in eachindex(x)]
 
 𝒢.K .- mat
+
+###
+k(x,y) = σ1 * exp(- γ1 * norm(x-y)^2 )
+
+function customamp(x,y)
+    ll = 0.0
+    for k in 1:16
+        ll += (x[k]-y[k])^2
+    end
+    return ll
+end
+
+function new_prediction(x, 𝒢)
+    tmpv = zeros(Float64, 16)
+    @inbounds for j in 1:288
+        tmpval = σ1 * exp(- γ1 * customamp(x, 𝒢.data[j]))
+        @inbounds for i in 1:16
+            tmpv[i] += 𝒢.predictor[j,i] * tmpval
+        end
+    end
+    return tmpv
+end
+
+function new_prediction2(x, 𝒢)
+    tmpv = zeros(Float64, 16)
+    @inbounds for j in 1:288
+        tmpval = 𝒢.kernel(x, 𝒢.data[j])
+        @inbounds for i in 1:16
+            tmpv[i] += 𝒢.predictor[j,i] * tmpval
+        end
+    end
+    return tmpv
+end
+
+
+
+tmpvc = 𝒢.predictor' * 𝒢.kernel.([x[1]], 𝒢.data)
+
+
+for i in 1:10

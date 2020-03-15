@@ -17,6 +17,15 @@ function lorenz63!(ṡ, s, params, t)
    ṡ[1] = ẋ
    ṡ[2] = ẏ
    ṡ[3] = ż
+   return nothing
+end
 
+
+function lorenz96!(ṡ, s, params, t)
+   K = params[1]
+   F = params[2]
+   for k in 0:K-1
+      ṡ[k+1] = (s[mod(k+1, K) + 1] - s[mod(k-2, K) + 1]) * s[mod(k-1, K)+ 1] - s[k + 1] + F
+   end
    return nothing
 end

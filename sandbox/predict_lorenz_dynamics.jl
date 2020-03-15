@@ -15,7 +15,7 @@ subsample = 1:10:end_n
 x_data = x[subsample]
 y_data = y[subsample]
 const γ1 = 0.0001
-const σ1 = 1.0
+const σ1 = 10^6.0
 k(x,y) = σ1 * exp(- γ1 * norm(x-y)^2 )
 d(x,y) = norm(x-y)^2
 cc = closure_guassian_closure(d, hyperparameters = [γ1,σ1])
@@ -45,11 +45,14 @@ plot(x_lorenz)
 
 indices = end_n+1:1:end_n2
 gpr_prediction = similar(y[indices])
+gpr_uncertainty = zeros(length(y[indices]))
 starting = x[end_n+1]
 gpr_prediction[1] = starting
+gpr_uncertainty[1] = uncertainty(starting, 𝒢)
 n = length(y[indices])
 for i in 1:(n-1)
-    gpr_prediction[i+1] = prediction([gpr_prediction[i]], 𝒢)
+    gpr_prediction[i+1] = prediction([gpr_prediction[i]], 𝒢) # .+ randn() * uncertainty(gpr_prediction[i], 𝒢)
+    gpr_uncertainty[i+1] = uncertainty(gpr_prediction[i+1], 𝒢)
 end
 
 

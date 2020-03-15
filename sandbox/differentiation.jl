@@ -2,10 +2,14 @@ using ForwardDiff, StaticArrays, BenchmarkTools
 
 
 test_f(x) = sum(sin, x) + prod(tan, x) * sum(sqrt, x);
-
+test_f2(x) = norm(inv(x))
+test_f3(x) = norm(inv(x))
 x = rand(5)
+x2 = randn(3,3)
 
 test_g = x -> ForwardDiff.gradient(test_f, x);
+test_g2 = x -> ForwardDiff.gradient(test_f2, x);
+test_g3 = x -> ForwardDiff.jacobian(test_f3, x);
 
 #=
 @show test_g(x)
@@ -35,7 +39,7 @@ tmp = [x]
 
 
 ###
-import Base.+, Base.*, Base./, Base.convert, Base.promote_rule
+import Base.+, Base.*, Base./, Base.convert, Base.-, Base.promote_rule
 
 struct DualNumber{T} <: Number
     x::T
@@ -50,6 +54,10 @@ function +(x::DualNumber{T}, y::DualNumber{T}) where T
     return DualNumber{T}(x.x + y.x, x.dx + y.dx)
 end
 
+function -(x::DualNumber{T}, y::DualNumber{T}) where T
+    return DualNumber{T}(x.x - y.x, x.dx - y.dx)
+end
+
 function /(x::DualNumber{T}, y::DualNumber{T}) where T
     return DualNumber{T}(x.x / y.x, (x.dx * y.x - x.x * y.dx)/(y.x + y.x))
 end
@@ -60,3 +68,8 @@ convert(::Type{DualNumber{Float64}}, x::Float64) = DualNumber{Float64}(x, zero(x
 promote_rule(::Type{DualNumber{Float64}}, ::Type{Float64}) = DualNumber{Float64}
 DualNumber(x) = DualNumber(x, zero(typeof(x)))
 println(b / a)
+c = [a a; a a]
+
+
+
+tmp = @SVector [1; 1; 1; 1]
