@@ -4,7 +4,7 @@
 # First load some packages
 
 using LinearAlgebra, BenchmarkTools
-
+timings = false
 # We proceed in order. We start with vectors[1] as our generator. We normalize it and make the rest orthogonal to it
 function gram_schmidt(vectors)
     # initialize new basis
@@ -57,6 +57,39 @@ end
 #```
 # in the usual procedure
 
+# Now we do it the householder way
+function householder(A)
+    R = copy(A)
+    m, n = size(R)
+    v = [zeros(eltype(R), m-i+1) for i in 1:m]
+    for j in 1:n
+        x = R[j:m, j]
+        v[j] .= -x
+        v[j][1] -= norm(x) * sign(x[1])
+        v[j] /= norm(v[j])
+        R[j:m, j:n] -= 2.0 * v[j] * (v[j]' * R[j:m, j:n])
+    end
+    return R, v
+end
+
+# action of Q on vector x
+function linear_operator_Q!(x, v)
+    for i in length(v):-1:1
+        x[i:length(v)] -= 2 * v[i] * dot(v[i], x[i:length(v)])
+    end
+end
+
+function build_Q(v)
+    x = zeros(length(v))
+    Q = zeros(length(x), length(x))
+    for i in eachindex(v)
+        x .= 0.0
+        x[i] = 1.0
+        linear_operator_Q!(x, v)
+        Q[:, i] .= x
+    end
+    return Q
+end
 
 # # Test
 #
@@ -66,7 +99,7 @@ end
 #
 #```
 
-n = 30
+n = 300
 vectors = [randn(n) for i in 1:n]
 
 Q, R = gram_schmidt(vectors)
@@ -82,14 +115,29 @@ function make_matrix(Q)
     return matQ
 end
 
-for i in 1:n
-    for j in 1:n
-        println("("*string(i) * "," * string(j) * ")")
-        println(Q[i]' * Q[j])
-    end
-end
+
 mQ = make_matrix(Q)
+mQ2 = make_matrix(Q2)
 mV = make_matrix(vectors)
+
+hR, hV = householder(mV)
+hQ = build_Q(hV)
 
 # The following is should be machine precision
 norm(mQ * R - mV) / norm(mV)
+norm(mQ2 * R2 - mV) / norm(mV)
+norm(hQ * hR - mV) / norm(mV)
+
+
+###
+# timings
+if timings
+println("GS")
+@btime Q, R = gram_schmidt(vectors);
+println("mGS")
+@btime Q2, R2 = modified_gram_schmidt(vectors);
+println("householder")
+@btime hR, hV = householder(mV);
+println("qr")
+@btime qrV = qr(mV);
+end
