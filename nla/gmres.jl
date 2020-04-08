@@ -1,5 +1,4 @@
-function gmres(linear_operator!, x, b, max_iterations, threshold; n = length(x))
-    m = max_iterations;
+function gmres(linear_operator!, x, b, max_iterations, threshold; n = length(x), m = max_iterations)
     Ax = similar(x)
     linear_operator!(Ax, x)
     r = b - Ax
@@ -17,7 +16,7 @@ function gmres(linear_operator!, x, b, max_iterations, threshold; n = length(x))
     β = r_norm .* el;
 
     for k in 1:m
-        H[1:k+1, k] Q[:, k+1] = arnoldi(linear_operator!, Q, k)
+        H[1:k+1, k], Q[:, k+1] = arnoldi(linear_operator!, Q, k)
         [H[1:k+1, k] cs[k] sn[k]] = givens_rotation(H[1:k+1, k], cs, sn, k)
         β[k+1] = -sn[k] * β[k]
         β[k] = cs[k] * β[k]
