@@ -43,6 +43,7 @@ function modified_gram_schmidt(vectors)
     end
     return q, r
 end
+
 # The differences between modified gram schmidt and regular
 # only show up once one has 3 or more vectors
 # The biggest difference for the 3rd vector is that
@@ -64,8 +65,8 @@ function householder(A)
     v = [zeros(eltype(R), m-i+1) for i in 1:m]
     for j in 1:n
         x = R[j:m, j]
-        v[j] .= -x
-        v[j][1] -= norm(x) * sign(x[1])
+        v[j] .= x
+        v[j][1] += norm(x) * sign(x[1])
         v[j] /= norm(v[j])
         R[j:m, j:n] -= 2.0 * v[j] * (v[j]' * R[j:m, j:n])
     end

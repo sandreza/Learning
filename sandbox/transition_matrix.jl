@@ -7,7 +7,7 @@ state_n = 17
 FT = typeof(1.0)
 T = zeros(FT, (state_n, state_n))
 
-p = 0.6 # probability of "winning"
+p = 0.55 # probability of "winning"
 
 # Define the matrix
 T[1,1] = 1-p # losing at the bottom
