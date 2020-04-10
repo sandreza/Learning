@@ -35,13 +35,3 @@ A = randn(n,n)
 H, v = upper_hessenberg(A)
 Q = build_Q_H(v)
 norm(Q' * H * Q - A)
-
-###
-H = zeros(eltype(v[1]), length(v)+2, length(v)+2) + I
-for i in 1:(4-2)
-    x = H[i+1:4, i]
-    v[i] .= x
-    v[i][1] += sign(x[1]) * norm(x)
-    v[i] /= norm(v[i])
-    H[i+1:4, i:4] -= 2.0 * v[i] * (v[i]' * H[i+1:4, i:4])
-end
