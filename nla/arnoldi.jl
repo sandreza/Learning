@@ -39,17 +39,22 @@ function arnoldi(A, b; columns = length(b))
 end
 
 ###
-n = 4
-columns = 4
+n = 10
+columns = 3
 A = randn(n,n)
+A = A'*A
 b = randn(n)
 
 Qⁿ⁺¹, Hⁿ = arnoldi(A,b, columns = columns)
 
-if columns == length(b)
-    err = norm(A * Qⁿ⁺¹[:, 1:columns] - Qⁿ⁺¹[:, 1:columns] * Hⁿ) / norm(A)
-    println("The relative error is " * string(err))
-else
-    err = norm(A * Qⁿ⁺¹[:, 1:columns] - Qⁿ⁺¹[:, 1:columns+1] * Hⁿ) / norm(A)
-    println("The relative error is " * string(err))
-end
+
+err = norm(A * Qⁿ⁺¹[:, 1:columns] - Qⁿ⁺¹[:, 1:columns+1] * Hⁿ) / norm(A)
+println("The relative error is " * string(err))
+println(eigvals(A))
+println(eigvals( Hⁿ[1:columns,1:columns]))
+
+
+
+(Hⁿ[:,1:columns-1]'  * Hⁿ[:,1:columns-1])\
+
+Hⁿ[:, 1:2] * inv(Hⁿ[:,1:columns-1]'  * Hⁿ[:,1:columns-1]) * Hⁿ[:, 1:2]'
