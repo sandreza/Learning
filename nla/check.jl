@@ -24,7 +24,7 @@ display(gmres.H)
 linear_operator!(x, b)# residual
 r = b .- x
 printstuff = true
-for i in 1:1
+for i in 1:3
     iteration = i
     # Step 1: Get the Arnoldi Update
     arnoldi_update!(iteration, gmres, linear_operator!, b)
@@ -51,9 +51,22 @@ end
 # that Q' * b = \|b \| e_1 where $e_1$ is the unit vector with zeros in all the components except for the first one
 # this is implicitly a vector in $n+1$
 # The minimization problem is overconstrained since $y$ lies in a lower
-# dimensional vector space. Thus we need to solve it in the least squares sense.
+# dimensional vector space (n instead of n+1). Thus we need to solve it in the least squares sense.
 # One way to solve the least squares problem is to perform a
 # QR factorization of the H matrix, multiply through by Q
 # and then backsolve the resulting R factor
 # The reason that this is potentially nice is that the QR
 # factorization of H^n can be obtained via a minor update of the QR factorization of H^{n-1}
+
+# did I need to do it this way? No
+# is it cool? oh yeah ... (to me it is ...)
+###
+for counter in 1:3
+    i = counter
+    Q_ = Meta.parse("Q"*string(i))
+    R_ = Meta.parse("R"*string(i))
+    H_ = Meta.parse("H"*string(i))
+    i_ = Meta.parse("$counter")
+    @eval $H_ = gmres.H[1:$i_+1,1:$i_]
+    @eval $Q_, $R_ = qr($H_)
+end
