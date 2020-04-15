@@ -42,7 +42,7 @@ function arnoldi!(linear_operator!, b; columns = length(b))
     for n in 1:m
         linear_operator!(Aqⁿ, Q[:,n])
         for j in 1:n
-            H[j, n] = Q[:,j]' * Aqⁿ
+            H[j, n] = dot(Q[:,j], Aqⁿ)
             Aqⁿ -= H[j, n] * Q[:,j]
         end
         if n+1 <= length(b)
@@ -55,10 +55,9 @@ end
 
 ###
 # First define the linear operator
-n = 20
-A = randn(n,n)
-A = A' * A + 10I
-
+n = 100
+A = randn(n,n) + 10I
+# A = A' * A .* 1 + 0 * I
 
 b = randn(n)
 x = randn(n)
@@ -69,6 +68,7 @@ norm(A*b - x)
 residual = []
 coeffs = []
 estimate = []
+# This is the innefficient GMRES
 for i in 1:length(b)
     Q, H = arnoldi!(linear_operator!, b, columns = i)
     # Note that Q here is Qⁿ⁺¹
@@ -78,27 +78,29 @@ for i in 1:length(b)
     kc = H \ (rotated_b) # Krylov coefficients
     cg = Q[:, 1:end-1] * kc # current guess
     push!(coeffs, kc)
-    push!(estimate, eigvals(H[1:i,1:i]))
+    push!(estimate, eigvals(H[1:i,1:i])) # Krylov Subspace estimate of eigenvalues
     push!(residual, norm(A * cg - b) )
 end
 
-scatter(log.(residual) ./ log(10), legend = false)
+scatter(log.(residual) ./ log(10), legend = false,  gridalpha = 0.25, framestyle = :box , xlabel = "iterations", ylabel = "log residual", title = "GMRES convergence")
 
+###
 eigA = eigvals(A)
 
 for i in 1:length(b)
-    xmax = maximum(real.(eigvals(A))) * 1.1 + 0.1
-    xmin = minimum(real.(eigvals(A))) * 1.1 - 0.1
-    ymax = maximum(imag.(eigvals(A))) * 1.1 + 0.1
-    ymin = minimum(imag.(eigvals(A))) * 1.1 - 0.1
+    relmag = maximum(abs.(eigA)) # relative magnitude
+    xmax   = maximum(real.(eigA)) + 0.1 * relmag
+    xmin   = minimum(real.(eigA)) - 0.1 * relmag
+    ymax   = maximum(imag.(eigA)) + 0.1 * relmag
+    ymin   = minimum(imag.(eigA)) - 0.1 * relmag
     p1 = scatter(real.(eigA), imag.(eigA), label = "Eigvals A", legend = :topright, xlabel = "Real", ylabel = "Imaginary", title = "Eigenvalues of operator", xlims = (xmin, xmax), ylims = (ymin, ymax), gridalpha = 0.25, framestyle = :box )
-    p2 = scatter!(real.(estimate[i]), imag.(estimate[i]), marker = :x, color = :black, label = "approximation " * string(i))
+    p2 = scatter!(real.(estimate[i]), imag.(estimate[i]), marker = :x, color = :black, label = "approximation " * string(i), markersize = 4)
     display(p2)
     sleep(0.0)
 end
 
 ###
-i = length(b)-0
+i = length(b)-1
 Q, H = arnoldi!(linear_operator!, b, columns = i)
 # Note that Q here is Qⁿ⁺¹
 # norm(A * Q[:,1:end-1] - Q * H) # should be zero
