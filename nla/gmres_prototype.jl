@@ -126,3 +126,32 @@ function gibbs_rotation(v)
     s = - v[2] / norm_v
     return norm_v, [c -s; s c]
 end
+
+"""
+backsolve!(vector, matrix, n)
+
+# Description
+Recursively performs a backsolve
+
+# Arguments
+- `vector` (array) [OVERWRITTEN] the b in Ax = b gets overwitten with the solution x
+- `matrix` (array) uppertriangular matrix for performing the backsolve
+
+# Return
+- Nothing
+
+# Comment
+- using vector[1:(n-1)] .-= matrix[1:(n-1),n] * vector[n]
+instead of a for loop lead to a code that was 3 times slower
+and had much more memory allocation
+"""
+function backsolve!(vector, matrix, n)
+    vector[n] /= matrix[n,n]
+    if n>1
+        @inbounds for j in 1:n-1
+            vector[j] -= matrix[j,n] * vector[n]
+        end
+        backsolve!(vector, matrix, n-1)
+    end
+    return nothing
+end

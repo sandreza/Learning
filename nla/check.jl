@@ -98,18 +98,13 @@ function solve_optimization(iteration, gmres, b)
     end
 end
 
-function backsolve!(vector, matrix, n)
-    vector[n] /= matrix[n,n]
-    if n>1
-        vector[1:(n-1)] .-= matrix[1:(n-1),n] * vector[n]
-        backsolve!(vector, matrix, n-1)
-    end
-    return nothing
-end
 
+###
+# Recursive backsolve check
 n = 8
 vec = randn(n)
-mat = Array(UpperTriangular(randn(n,n)))
+mat = UpperTriangular(randn(n,n))
+sol = copy(vec)
 sol = mat \ vec
 backsolve!(vec, mat, n)
 norm(sol - vec) / norm(vec)
