@@ -102,15 +102,16 @@ function backsolve!(vector, matrix, n)
     vector[n] /= matrix[n,n]
     if n>1
         vector[1:(n-1)] .-= matrix[1:(n-1),n] * vector[n]
-        backsolve!(vector[1:(n-1)], matrix[1:(n-1),1:(n-1)], n-1)
+        backsolve!(vector, matrix, n-1)
     end
     return nothing
 end
 
-vec = [1.0; 8.0]
-mat = [1.0 1.0; 0.0 2.0]
+n = 8
+vec = randn(n)
+mat = Array(UpperTriangular(randn(n,n)))
 sol = mat \ vec
-backsolve!(vec, mat, 2)
+backsolve!(vec, mat, n)
 norm(sol - vec) / norm(vec)
 #=
 for i in n:-1:1
