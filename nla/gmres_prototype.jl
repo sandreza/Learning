@@ -48,8 +48,8 @@ function PrototypeRes(Q; restart = length(Q))
     k = restart
     Q = zeros(eltype(Q), (length(Q), k+1 ))
     H = zeros(eltype(Q), (k+1, k))
-    KQ = zeros(eltype(Q), (k+1, k))
-    KR  = zeros(eltype(Q), (k, k))
+    KQ = zeros(eltype(Q), (k+1, k+1))
+    KR  = zeros(eltype(Q), (k+1, k))
     container = [
         restart,
         residual,

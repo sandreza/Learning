@@ -89,30 +89,71 @@ tmpQ[2:3,2:3] .= Ω
 
 function solve_optimization(iteration, gmres, b)
     if iteration==1
-        tmpKR, tmpKQ = gibbs_rotation(gmres.H[1:2,1])
-        gmres.KR[1:1,1] .= tmpKR
-        gmres.KQ[1:2,1:2]  = tmpKQ
+        n = 1
+        tmpKR, tmpKQ = gibbs_rotation(gmres.H[1:n+1,n])
+        gmres.KR[1:n,n] .= tmpKR
+        gmres.KQ[1:n+1,1:n+1]  = tmpKQ
         tmpv = [norm(b); 0]
-        tmpv = tmpKQ * tmpv
-        backsolve!(tmpv, gmres.KR[1:1,1:1])
+        tmpv = gmres.KQ[1:n+1,1:n+1] * tmpv
+        backsolve!(tmpv, gmres.KR[1:n,1:n], n)
+        sol = gmres.Q[:,1:n] * tmpv[1:n]
+    else
+        n = iteration
+        # Apply previous Q
+        tmp = gmres.KQ[1:n,1:n] * gmres.H[1:n, n]
+        v = [tmp[n]; gmres.H[n+1,n]]
+        # Now get new rotation for update
+        norm_v, Ω = gibbs_rotation(v)
+        # Create new Q
+        gmres.KQ[n+1,n+1] = 1.0
+        gmres.KQ[n:n+1,:]  = Ω * gmres.KQ[n:n+1,:]
+        # Create new R, (only add last column)
+        gmres.KR[1:n,n] = tmp
+        gmres.KR[n+1,n] = gmres.H[n+1,n]
+        gmres.KR[n:n+1, :] = Ω * gmres.KR[n:n+1, :] #CHECK THIS, perhaps only need last two ros
+        # Now that we have the QR decomposition, we solve
+        tmpv = gmres.KQ[1:n+1,1] * norm(b)
+        backsolve!(tmpv, gmres.KR[1:n,1:n], n)
+        sol = gmres.Q[:,1:n] * tmpv[1:n]
     end
+    return sol
 end
 
 
 ###
+n = 1
+tmpKR, tmpKQ = gibbs_rotation(gmres.H[1:n+1,n])
+gmres.KR[1:n,n] .= tmpKR
+gmres.KQ[1:n+1,1:n+1]  = tmpKQ
+tmpv = [norm(b); 0]
+tmpv = tmpKQ * tmpv
+backsolve!(tmpv, gmres.KR[1:n,1:n], n)
+sol = gmres.Q[:,1:n] * tmpv[1:n]
+###
+n = 3
+# Apply previous Q
+tmp = gmres.KQ[1:n,1:n] * gmres.H[1:n, n]
+v = [tmp[n]; gmres.H[n+1,n]]
+# Now get new rotation for update
+norm_v, Ω = gibbs_rotation(v)
+# Create new Q
+gmres.KQ[n+1,n+1] = 1.0
+gmres.KQ[n:n+1,:]  = Ω * gmres.KQ[n:n+1,:]
+# Create new R, (only add last column)
+gmres.KR[1:n,n] = tmp
+gmres.KR[n+1,n] = gmres.H[n+1,n]
+gmres.KR[n:n+1, :] = Ω * gmres.KR[n:n+1, :] #CHECK THIS, perhaps only need last two ros
+# Now that we have the QR decomposition, we solve
+tmpv = gmres.KQ[1:n+1,1] * norm(b)
+backsolve!(tmpv, gmres.KR[1:n,1:n], n)
+sol = gmres.Q[:,1:n] * tmpv[1:n]
+
+###
 # Recursive backsolve check
-n = 8
+n = 50
 vec = randn(n)
 mat = UpperTriangular(randn(n,n))
 sol = copy(vec)
 sol = mat \ vec
 backsolve!(vec, mat, n)
 norm(sol - vec) / norm(vec)
-#=
-for i in n:-1:1
-    vector[i] = vector[i] / matrix[i,i]
-    for j in n-1:-1:i-1
-        vector[i] -= vector[j] * matrix[i,j]
-    end
-end
-=#
