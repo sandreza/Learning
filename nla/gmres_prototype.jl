@@ -22,7 +22,7 @@ struct PrototypeRes{𝒮,𝒯,𝒱}
     restart::𝒮
     residual::𝒱
     Q::𝒯
-    H::𝒯 # A factor of two in memory can be saved here
+    H::𝒯  # A factor of two in memory can be saved here
     KQ::𝒯
     KR::𝒯 # A factor of two in memory can be saved here
 end
@@ -76,18 +76,18 @@ Perform an Arnoldi iteration
 - `linear_operator!`: (function) Action of linear operator on vector
 - `b`: (vector). Initial guess
 
-# linear_operator! Arguments
-- `linear_operator!(x,y)`
-# # Description
-# - Performs Linear operation on vector and overwrites it
-# # Arguments
-# - `x`: (array) [OVERWRITTEN]
-# - `y`: (array)
-# # Return
-# - Nothing
-
 # Return
 - nothing
+
+# linear_operator! Arguments
+- `linear_operator!(x,y)`
+# Description
+- Performs Linear operation on vector and overwrites it
+# Arguments
+- `x`: (array) [OVERWRITTEN]
+- `y`: (array)
+# Return
+- Nothing
 """
 function arnoldi_update!(n, g, linear_operator!, b)
     if n==1
@@ -104,4 +104,25 @@ function arnoldi_update!(n, g, linear_operator!, b)
         g.Q[:, n+1] .= Aqⁿ / g.H[n+1, n]
     end
     return nothing
+end
+
+
+"""
+gibbs_rotation(v)
+
+# Description
+Takes a vector v and finds a rotation matrix that produces the vector [norm_v; 0]
+
+# Argument
+- `v`: (vector) 2D vector
+
+# Return
+- `norm_v`: magnitude of the vector v
+- `Ω`: Rotation matrix
+"""
+function gibbs_rotation(v)
+    norm_v = sqrt(v[1]^2 + v[2]^2)
+    c = v[1] / norm_v
+    s = - v[2] / norm_v
+    return norm_v, [c -s; s c]
 end

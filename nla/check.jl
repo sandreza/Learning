@@ -70,3 +70,53 @@ for counter in 1:3
     @eval $H_ = gmres.H[1:$i_+1,1:$i_]
     @eval $Q_, $R_ = qr($H_)
 end
+
+###
+tmp = Q1' * H2[1:2, 2]
+v = [tmp[2]; H2[3,2]]
+norm_v, Ω = gibbs_rotation(v)
+newQ = zeros(size(Q1) .+ 1)
+newQ[1:2,1:2] .= Q1'
+newQ[3,3] = 1
+newQ[2:3,:]  = Ω * newQ[2:3,:]
+tmpQ[1:1,1:1] += I
+tmpQ[2:3,2:3] .= Ω
+# newQ[2:3,2:3]  = new * Ω'
+# Apply rotation to last column
+# Apply rotation last two entries
+# Back solve
+
+
+function solve_optimization(iteration, gmres, b)
+    if iteration==1
+        tmpKR, tmpKQ = gibbs_rotation(gmres.H[1:2,1])
+        gmres.KR[1:1,1] .= tmpKR
+        gmres.KQ[1:2,1:2]  = tmpKQ
+        tmpv = [norm(b); 0]
+        tmpv = tmpKQ * tmpv
+        backsolve!(tmpv, gmres.KR[1:1,1:1])
+    end
+end
+
+function backsolve!(vector, matrix, n)
+    vector[n] /= matrix[n,n]
+    if n>1
+        vector[1:(n-1)] .-= matrix[1:(n-1),n] * vector[n]
+        backsolve!(vector[1:(n-1)], matrix[1:(n-1),1:(n-1)], n-1)
+    end
+    return nothing
+end
+
+vec = [1.0; 8.0]
+mat = [1.0 1.0; 0.0 2.0]
+sol = mat \ vec
+backsolve!(vec, mat, 2)
+norm(sol - vec) / norm(vec)
+#=
+for i in n:-1:1
+    vector[i] = vector[i] / matrix[i,i]
+    for j in n-1:-1:i-1
+        vector[i] -= vector[j] * matrix[i,j]
+    end
+end
+=#
