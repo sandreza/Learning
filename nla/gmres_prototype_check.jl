@@ -6,7 +6,8 @@ b = randn(n) # rhs
 x = randn(n) # initial guess
 A = randn((n,n)) ./ sqrt(n) .* 1.0 + I
 gmres = PrototypeRes(b)
-x = rand(n) * 0.0
+x = A\b
+x += randn(n) * 0.01 * maximum(abs.(x))
 linear_operator! = closure_linear_operator!(A)
 r = solve!(x, b, linear_operator!, gmres; iterations = length(b), residual = true)
 

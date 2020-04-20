@@ -260,9 +260,7 @@ Solves the optimization problem in GMRES
 function solve_optimization!(iteration, gmres, b, x)
     rhs = gmres.KQ[1:iteration+1,1] * norm(b)
     backsolve!(rhs, gmres.KR[1:iteration,1:iteration], iteration)
-    sol = gmres.Q[:, 1:iteration] * rhs[1:iteration]
-    x .= sol
-    # mul!(x, gmres.Q[:, 1:iteration], rhs[1:iteration])
+    mul!(x, gmres.Q[:, 1:iteration], rhs[1:iteration])
     return nothing
 end
 
