@@ -200,22 +200,31 @@ update_QR!(gmres, n)
 # Return
 - nothing
 
+# Comment
+What is actually produced by the algorithm isn't the Q in the QR decomposition but rather Q^*. This is convenient since this is what is actually need to solve the linear system
+
 """
 function update_QR!(gmres, n)
-    # Apply previous Q to new column
-    tmp = gmres.KQ[1:n, 1:n] * gmres.H[1:n, n]
-    # Construct vector that needs to be rotated
-    v = [tmp[n]; gmres.H[n+1,n]]
-    # Now get new rotation for update
-    norm_v, Ω = gibbs_rotation(v)
-    # Create new Q
-    gmres.KQ[n+1,n+1] = 1.0
-    gmres.KQ[n:n+1,:]  = Ω * gmres.KQ[n:n+1,:]
-    # Create new R, (only add last column)
-    gmres.KR[1:n,n] = tmp
-    gmres.KR[n+1,n] = gmres.H[n+1,n]
-    gmres.KR[n:n+1, :] = Ω * gmres.KR[n:n+1, :]
-    # The line above should be checked so as to be more efficient
+    if n==1
+        tmpKR, tmpKQ = gibbs_rotation(gmres.H[1:2,1])
+        gmres.KR[1:1,1] .= tmpKR
+        gmres.KQ[1:2,1:2]  = tmpKQ
+    else
+        # Apply previous Q to new column
+        tmp = gmres.KQ[1:n, 1:n] * gmres.H[1:n, n]
+        # Construct vector that needs to be rotated
+        v = [tmp[n]; gmres.H[n+1,n]]
+        # Now get new rotation for update
+        norm_v, Ω = gibbs_rotation(v)
+        # Create new Q
+        gmres.KQ[n+1,n+1] = 1.0
+        gmres.KQ[n:n+1,:]  = Ω * gmres.KQ[n:n+1,:]
+        # Create new R, (only add last column)
+        gmres.KR[1:n,n] = tmp
+        gmres.KR[n+1,n] = gmres.H[n+1,n]
+        gmres.KR[n:n+1, :] = Ω * gmres.KR[n:n+1, :]
+        # The line above should be checked so as to be more efficient
+    end
     return nothing
 end
 
@@ -231,17 +240,30 @@ Solves the optimization problem in GMRES
 - `b`: (array), rhs of lienar system
 """
 function solve_optimization(iteration, gmres, b)
-    if iteration==1
-        tmpKR, tmpKQ = gibbs_rotation(gmres.H[1:2,1])
-        gmres.KR[1:1,1] .= tmpKR
-        gmres.KQ[1:2,1:2]  = tmpKQ
-    else
-        update_QR!(gmres, iteration)
-    end
     rhs = gmres.KQ[1:iteration+1,1] * norm(b)
     backsolve!(rhs, gmres.KR[1:iteration,1:iteration], iteration)
     sol = gmres.Q[:, 1:iteration] * rhs[1:iteration]
     return sol
+end
+
+"""
+solve_optimization!(iteration, gmres, b, x)
+
+# Description
+Solves the optimization problem in GMRES
+
+# Arguments
+- `iteration`: (int) current iteration number
+- `gmres`: (struct) [OVERWRITTEN]
+- `b`: (array), rhs of lienar system
+"""
+function solve_optimization!(iteration, gmres, b, x)
+    rhs = gmres.KQ[1:iteration+1,1] * norm(b)
+    backsolve!(rhs, gmres.KR[1:iteration,1:iteration], iteration)
+    sol = gmres.Q[:, 1:iteration] * rhs[1:iteration]
+    x .= sol
+    # mul!(x, gmres.Q[:, 1:iteration], rhs[1:iteration])
+    return nothing
 end
 
 
@@ -265,20 +287,27 @@ Solves a linear system using gmres
 - Nothing if keyword argument residual = false, otherwise returns an array of numbers corresponding to the residual at each iteration
 """
 function solve!(x, b, linear_operator!, gmres; iterations = length(b), residual = false)
+    x_init = copy(x)
+    linear_operator!(x, x_init)
+    r_vector = b - x
     if residual
-        r = zeros(eltype(b), iterations)
+        r = zeros(eltype(x), iterations+1)
+        r[1] = norm(r_vector)
     end
     for i in 1:iterations
         iteration = i
         # Step 1: Get the Arnoldi Update
-        arnoldi_update!(iteration, gmres, linear_operator!, b)
-        # Step 2: Solve the minimization problem
-        sol = solve_optimization(iteration, gmres, b)
+        arnoldi_update!(iteration, gmres, linear_operator!, r_vector)
+        # Step 2: Update the QR decomposition
+        update_QR!(gmres, iteration)
+        # Step 3: Solve the minimization problem
+        solve_optimization!(iteration, gmres, r_vector, x)
         # Record Resiual
         if residual
-            r[i] = norm(A * sol - b)
+            r[i+1] = norm(A * x - r_vector)
         end
     end
+    x .= x_init + x
     if residual
         return r
     else
