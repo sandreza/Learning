@@ -1,4 +1,4 @@
-using BenchmarkTools
+using BenchmarkTools, Random, Plots
 include("gmres_prototype.jl")
 
 function closure_linear_operator!(A)
@@ -9,10 +9,11 @@ function closure_linear_operator!(A)
     return linear_operator!
 end
 ###
-n = 3 # size of vector space
+n = 10 # size of vector space
+Random.seed!(1235)
 b = randn(n) # rhs
 x = randn(n) # initial guess
-A = randn((n,n))
+A = randn((n,n)) ./ sqrt(n) + I
 gmres = PrototypeRes(b)
 linear_operator! = closure_linear_operator!(A)
 
@@ -23,8 +24,11 @@ println("H")
 display(gmres.H)
 linear_operator!(x, b)# residual
 r = b .- x
-printstuff = true
-for i in 1:3
+printstuff = false
+printstuff_2 = false
+keep_residual = true
+residual = []
+for i in 1:n
     iteration = i
     # Step 1: Get the Arnoldi Update
     arnoldi_update!(iteration, gmres, linear_operator!, b)
@@ -37,10 +41,34 @@ for i in 1:3
         display(gmres.H)
     end
     # Step 2: Solve the minimization problem
-    # minimize(iteration, gmres, b)
+    sol = solve_optimization(iteration, gmres, b)
+    if printstuff_2
+        println("After " * string(iteration) * " iteration(s) the norm of the residual is ")
+        println("residual")
+        println(r)
+        println("H")
+        display(gmres.H[i+1,i])
+        println("The solution guestimate is")
+        println(sol)
+    end
+    if keep_residual
+        r = norm(A * sol - b)
+        push!(residual, r)
+    end
 end
+###
+n = 200 # size of vector space
+Random.seed!(1235)
+b = randn(n) # rhs
+x = randn(n) # initial guess
+A = randn((n,n)) ./ sqrt(n) + I
+gmres = PrototypeRes(b)
+linear_operator! = closure_linear_operator!(A)
 
-
+r = solve!(x, b, linear_operator!, gmres; iterations = length(b), residual = true)
+###
+scatter(log.(r)/log(10), xlabel = "iteration", ylabel = "log10 residual", title = "gmres convergence", legend = false)
+###
 # At the end of iteration n we must solve the minimization problem
 # ```math
 #   min_y \| Q^{n+1} H^n y - b \|
@@ -72,52 +100,9 @@ for counter in 1:3
 end
 
 ###
-tmp = Q1' * H2[1:2, 2]
-v = [tmp[2]; H2[3,2]]
-norm_v, Ω = gibbs_rotation(v)
-newQ = zeros(size(Q1) .+ 1)
-newQ[1:2,1:2] .= Q1'
-newQ[3,3] = 1
-newQ[2:3,:]  = Ω * newQ[2:3,:]
-tmpQ[1:1,1:1] += I
-tmpQ[2:3,2:3] .= Ω
-# newQ[2:3,2:3]  = new * Ω'
-# Apply rotation to last column
-# Apply rotation last two entries
-# Back solve
 
 
-function solve_optimization(iteration, gmres, b)
-    if iteration==1
-        n = 1
-        tmpKR, tmpKQ = gibbs_rotation(gmres.H[1:n+1,n])
-        gmres.KR[1:n,n] .= tmpKR
-        gmres.KQ[1:n+1,1:n+1]  = tmpKQ
-        tmpv = [norm(b); 0]
-        tmpv = gmres.KQ[1:n+1,1:n+1] * tmpv
-        backsolve!(tmpv, gmres.KR[1:n,1:n], n)
-        sol = gmres.Q[:,1:n] * tmpv[1:n]
-    else
-        n = iteration
-        # Apply previous Q
-        tmp = gmres.KQ[1:n,1:n] * gmres.H[1:n, n]
-        v = [tmp[n]; gmres.H[n+1,n]]
-        # Now get new rotation for update
-        norm_v, Ω = gibbs_rotation(v)
-        # Create new Q
-        gmres.KQ[n+1,n+1] = 1.0
-        gmres.KQ[n:n+1,:]  = Ω * gmres.KQ[n:n+1,:]
-        # Create new R, (only add last column)
-        gmres.KR[1:n,n] = tmp
-        gmres.KR[n+1,n] = gmres.H[n+1,n]
-        gmres.KR[n:n+1, :] = Ω * gmres.KR[n:n+1, :] #CHECK THIS, perhaps only need last two ros
-        # Now that we have the QR decomposition, we solve
-        tmpv = gmres.KQ[1:n+1,1] * norm(b)
-        backsolve!(tmpv, gmres.KR[1:n,1:n], n)
-        sol = gmres.Q[:,1:n] * tmpv[1:n]
-    end
-    return sol
-end
+
 
 
 ###
@@ -150,10 +135,12 @@ sol = gmres.Q[:,1:n] * tmpv[1:n]
 
 ###
 # Recursive backsolve check
-n = 50
+n = 500
 vec = randn(n)
 mat = UpperTriangular(randn(n,n))
 sol = copy(vec)
 sol = mat \ vec
 backsolve!(vec, mat, n)
 norm(sol - vec) / norm(vec)
+
+##
