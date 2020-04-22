@@ -191,7 +191,7 @@ end
 update_QR!(gmres, n)
 
 # Description
-- Given a QR decomposition of the first n-1 columns of a matrix, this computes the QR decomposition associated with the first n columns
+Given a QR decomposition of the first n-1 columns of an upper hessenberg matrix, this computes the QR decomposition associated with the first n columns
 
 # Arguments
 - `gmres`: (struct) [OVERWRITTEN] the struct has factors that are updated
@@ -201,7 +201,7 @@ update_QR!(gmres, n)
 - nothing
 
 # Comment
-What is actually produced by the algorithm isn't the Q in the QR decomposition but rather Q^*. This is convenient since this is what is actually need to solve the linear system
+What is actually produced by the algorithm isn't the Q in the QR decomposition but rather Q^*. This is convenient since this is what is actually needed to solve the linear system
 
 """
 function update_QR!(gmres, n)
@@ -219,10 +219,9 @@ function update_QR!(gmres, n)
         # Create new Q
         gmres.KQ[n+1,n+1] = 1.0
         gmres.KQ[n:n+1,:]  = Ω * gmres.KQ[n:n+1,:]
-        # Create new R, (only add last column)
-        gmres.KR[1:n,n] = tmp
-        gmres.KR[n+1,n] = gmres.H[n+1,n]
-        gmres.KR[n:n+1, :] = Ω * gmres.KR[n:n+1, :]
+        # Create new R
+        gmres.KR[1:n-1,n] = tmp[1:n-1]
+        gmres.KR[n,n] = norm_v
         # The line above should be checked so as to be more efficient
     end
     return nothing
@@ -293,14 +292,9 @@ function solve!(x, b, linear_operator!, gmres; iterations = length(b), residual 
         r[1] = norm(r_vector)
     end
     for i in 1:iterations
-        iteration = i
-        # Step 1: Get the Arnoldi Update
-        arnoldi_update!(iteration, gmres, linear_operator!, r_vector)
-        # Step 2: Update the QR decomposition
-        update_QR!(gmres, iteration)
-        # Step 3: Solve the minimization problem
-        solve_optimization!(iteration, gmres, r_vector, x)
-        # Record Resiual
+        arnoldi_update!(i, gmres, linear_operator!, r_vector)
+        update_QR!(gmres, i)
+        solve_optimization!(i, gmres, r_vector, x)
         if residual
             r[i+1] = norm(A * x - r_vector)
         end
@@ -311,4 +305,12 @@ function solve!(x, b, linear_operator!, gmres; iterations = length(b), residual 
     else
         return nothing
     end
+end
+
+function closure_linear_operator!(A)
+    function linear_operator!(x,y)
+        mul!(x,A,y)
+        return nothing
+    end
+    return linear_operator!
 end
