@@ -4,32 +4,36 @@ using LinearAlgebra
 PrototypeRes{𝒮,𝒯,𝒱}
 
 # Description
-- A memory intensive struct for GMRES
+- A (less?) memory intensive struct for GMRES
 
 # Members
 
-- restart::𝒮 (int) number of GMRES iterations before wiping the subspace
+- restart::𝒮 (int) number of GMRES iterations before nuking the subspace
 - residual::𝒱 (vector) residual vector
+- sol::𝒱 (vector) solution vector
+- rhs::𝒱 (vector) rhs vector
+- cs::𝒱 (vector) Sequence of Gibbs Rotation matrices in compact form
 - H::𝒯 (array) Upper Hessenberg Matrix
 - Q::𝒯 (array) Orthonormalized Krylov Subspace
-- KQ::𝒯 (array) The Q of the QR factorization of operator in Krylov Subspace
-- KR::𝒯 (array) The R of the QR factorization of operator in Krylov Subspace
+- R::𝒯 (array) The R of the QR factorization of the UpperHessenberg matrix H
 
 # Intended Use
 - Solving linear systems iteratively
 """
-struct PrototypeRes{𝒮,𝒯,𝒱}
+struct ProtoRes{𝒮,𝒯,𝒱}
     restart::𝒮
     residual::𝒱
-    Q::𝒯
+    sol::𝒱
+    rhs::𝒱
+    cs::𝒱
     H::𝒯  # A factor of two in memory can be saved here
-    KQ::𝒯
-    KR::𝒯 # A factor of two in memory can be saved here
+    Q::𝒯
+    R::𝒯 # A factor of two in memory can be saved here
 end
 
 
 """
-PrototypeRes(Q; restart = length(Q))
+ProtoRes(Q; restart = length(Q))
 
 # Description
 - Constructor for the PrototypeRes class
@@ -41,24 +45,28 @@ PrototypeRes(Q; restart = length(Q))
 - `k`: (int) ; Default = length(Q) ; How many krylove subspace iterations we keep
 
 # Return
-- An instance of the PrototypeRes class
+- An instance of the ProtoRes class
 """
-function PrototypeRes(Q; restart = length(Q))
+function ProtoRes(Q; restart = length(Q))
     residual = similar(Q)
     k = restart
-    Q = zeros(eltype(Q), (length(Q), k+1 ))
+    sol = similar(Q)
+    rhs = zeros(eltype(Q), k+1)
+    cs = zeros(eltype(Q), 2 * k)
+    kQ = zeros(eltype(Q), (length(Q), k+1 ))
     H = zeros(eltype(Q), (k+1, k))
-    KQ = zeros(eltype(Q), (k+1, k+1))
-    KR  = zeros(eltype(Q), (k+1, k))
+    R  = zeros(eltype(Q), (k+1, k))
     container = [
         restart,
         residual,
-        Q,
+        sol,
+        rhs,
+        cs,
         H,
-        KQ,
-        KR
+        kQ,
+        R
     ]
-    return PrototypeRes(container...)
+    return ProtoRes(container...)
 end
 
 
@@ -91,43 +99,29 @@ Perform an Arnoldi iteration
 # Comment
 There seems to be type instability here associated with a loop
 """
-function arnoldi_update!(n, g, linear_operator!, b)
+function arnoldi_update!(n, g::ProtoRes, linear_operator!, b)
     if n==1
-        g.Q[:,1] .= b / norm(b) # First Krylov vector
+        # set everything to zero to be sure
+        g.rhs .= 0.0
+        g.Q .= 0.0
+        g.R .= 0.0
+        g.cs .= 0.0
+        g.sol .= 0.0
+        g.H .= 0.0
+        # now start computations
+        g.rhs[1] = norm(b) # for later
+        g.Q[:,1] .= b / g.rhs[1] # First Krylov vector
     end
-    Aqⁿ = copy(b)
-    linear_operator!(Aqⁿ, g.Q[:,n])
+    linear_operator!(g.sol, g.Q[:,n])
     for j in 1:n
-        g.H[j, n] = dot(g.Q[:,j], Aqⁿ)
-        Aqⁿ -= g.H[j, n] * g.Q[:,j]
+        g.H[j, n] = dot(g.Q[:,j], g.sol)
+        g.sol .-= g.H[j, n] * g.Q[:,j]
     end
-
     if n+1 <= length(b)
-        g.H[n+1, n] = norm(Aqⁿ)
-        g.Q[:, n+1] .= Aqⁿ / g.H[n+1, n]
+        g.H[n+1, n] = norm(g.sol)
+        g.Q[:, n+1] .= g.sol / g.H[n+1, n]
     end
     return nothing
-end
-
-
-"""
-gibbs_rotation(v)
-
-# Description
-Takes a vector v and finds a rotation matrix that produces the vector [norm_v; 0]
-
-# Argument
-- `v`: (vector) a vector with two components
-
-# Return
-- `norm_v`: magnitude of the vector v
-- `Ω`: rotation matrix
-"""
-function gibbs_rotation(v)
-    norm_v = sqrt(v[1]^2 + v[2]^2)
-    c = v[1] / norm_v
-    s = - v[2] / norm_v
-    return norm_v, [c -s; s c]
 end
 
 """
@@ -185,6 +179,29 @@ function backsolve_2!(vector, matrix, n)
     return nothing
 end
 
+"""
+apply_rotation!(vector, cs, n)
+
+# Description
+Apply sequences of givens rotation with compact representation given by cs
+
+# Arguments
+- `vector`: (vector) [OVERWITTEN]
+- `cs`: (vector)
+- `n`: (int)
+
+# Return
+Nothing
+"""
+function apply_rotation!(vector, cs, n)
+    for i in 1:n
+        tmp1 = cs[1 + 2*(i-1)] * vector[i] - cs[2*i] * vector[i+1]
+        tmp2 = cs[2*i] * vector[i] + cs[1 + 2*(i-1)] * vector[i+1]
+        vector[i] = tmp1
+        vector[i+1] = tmp2
+    end
+    return nothing
+end
 
 
 """
@@ -204,49 +221,30 @@ Given a QR decomposition of the first n-1 columns of an upper hessenberg matrix,
 What is actually produced by the algorithm isn't the Q in the QR decomposition but rather Q^*. This is convenient since this is what is actually needed to solve the linear system
 
 """
-function update_QR!(gmres, n)
+function update_QR!(gmres::ProtoRes, n)
     if n==1
-        tmpKR, tmpKQ = gibbs_rotation(gmres.H[1:2,1])
-        gmres.KR[1:1,1] .= tmpKR
-        gmres.KQ[1:2,1:2]  = tmpKQ
+        gmres.cs[1] = gmres.H[1,1]
+        gmres.cs[2] = gmres.H[2,1]
+        gmres.R[1,1] = sqrt(gmres.cs[1]^2 + gmres.cs[2]^2)
+        gmres.cs[1] /= gmres.R[1,1]
+        gmres.cs[2] /= -gmres.R[1,1]
     else
         # Apply previous Q to new column
-        tmp = gmres.KQ[1:n, 1:n] * gmres.H[1:n, n]
-        # Construct vector that needs to be rotated
-        v = [tmp[n]; gmres.H[n+1,n]]
-        # Now get new rotation for update
-        norm_v, Ω = gibbs_rotation(v)
-        # Create new Q
-        gmres.KQ[n+1,n+1] = 1.0
-        gmres.KQ[n:n+1,:]  = Ω * gmres.KQ[n:n+1,:]
-        # Create new R
-        gmres.KR[1:n-1,n] = tmp[1:n-1]
-        gmres.KR[n,n] = norm_v
-        # The line above should be checked so as to be more efficient
+        gmres.R[1:n,n] .= gmres.H[1:n, n]
+        apply_rotation!(view(gmres.R, 1:n, n), gmres.cs, n-1)
+        # Now update
+        gmres.cs[1+2*(n-1)] = gmres.R[n,n]
+        gmres.cs[2*n] = gmres.H[n+1,n]
+        gmres.R[n,n] = sqrt(gmres.cs[1+2*(n-1)]^2 + gmres.cs[2*n]^2)
+        gmres.cs[1+2*(n-1)] /= gmres.R[n,n]
+        gmres.cs[2*n] /= -gmres.R[n,n]
     end
     return nothing
 end
 
-"""
-solve_optimization(iteration, gmres, b)
-
-# Description
-Solves the optimization problem in GMRES
-
-# Arguments
-- `iteration`: (int) current iteration number
-- `gmres`: (struct)
-- `b`: (array), rhs of lienar system
-"""
-function solve_optimization(iteration, gmres, b)
-    rhs = gmres.KQ[1:iteration+1,1] * norm(b)
-    backsolve!(rhs, gmres.KR, iteration)
-    sol = gmres.Q[:, 1:iteration] * rhs[1:iteration]
-    return sol
-end
 
 """
-solve_optimization!(iteration, gmres, b, x)
+solve_optimization!(iteration, gmres)
 
 # Description
 Solves the optimization problem in GMRES
@@ -256,11 +254,15 @@ Solves the optimization problem in GMRES
 - `gmres`: (struct) [OVERWRITTEN]
 - `b`: (array), rhs of lienar system
 """
-function solve_optimization!(iteration, gmres, b, x)
-    rhs = gmres.KQ[1:iteration+1,1] * norm(b)
-    # note that rhs[iteration+1] is the residual
-    backsolve!(rhs, gmres.KR[1:iteration,1:iteration], iteration)
-    mul!(x, gmres.Q[:, 1:iteration], rhs[1:iteration])
+function solve_optimization!(n, gmres)
+    # just need to update rhs from previous iteration
+    tmp1 = gmres.cs[1 + 2*(n-1)] * gmres.rhs[n] - gmres.cs[2*n] * gmres.rhs[n+1]
+    gmres.rhs[n+1] = gmres.cs[2*n] * gmres.rhs[n] + gmres.cs[1 + 2*(n-1)] * gmres.rhs[n+1]
+    gmres.rhs[n] = tmp1
+
+    # note that gmres.rhs[iteration+1] is the residual
+    gmres.sol[1:n] .= gmres.rhs[1:n]
+    backsolve!(gmres.sol, gmres.R, n)
     return nothing
 end
 
@@ -284,7 +286,7 @@ Solves a linear system using gmres
 # Return
 - Nothing if keyword argument residual = false, otherwise returns an array of numbers corresponding to the residual at each iteration
 """
-function solve!(x, b, linear_operator!, gmres; iterations = length(b), residual = false)
+function solve!(x, b, linear_operator!, gmres::ProtoRes; iterations = length(b), residual = false)
     x_init = copy(x)
     linear_operator!(x, x_init)
     r_vector = b - x
@@ -295,12 +297,13 @@ function solve!(x, b, linear_operator!, gmres; iterations = length(b), residual 
     for i in 1:iterations
         arnoldi_update!(i, gmres, linear_operator!, r_vector)
         update_QR!(gmres, i)
-        solve_optimization!(i, gmres, r_vector, x)
+        solve_optimization!(i, gmres)
         if residual
-            r[i+1] = norm(A * x - r_vector)
+            r[i+1] = abs(gmres.rhs[i+1])
         end
     end
-    x .= x_init + x
+    tmp = gmres.Q[:, 1:iterations] *  gmres.sol[1:iterations]
+    x .= x_init + tmp
     if residual
         return r
     else
