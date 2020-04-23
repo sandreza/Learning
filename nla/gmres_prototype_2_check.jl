@@ -14,3 +14,21 @@ r2 = solve!(x, b, linear_operator!, gmres2; iterations = length(b), residual = t
 ###
 # Now just plot the convergence rate
 scatter(log.(r2)/log(10), xlabel = "iteration", ylabel = "log10 residual", title = "gmres convergence", legend = false)
+
+###
+# finding the inefficiencies
+@btime arnoldi_update!(n, gmres2, linear_operator!, x);
+@btime update_QR!(gmres2, n);
+@btime solve_optimization!(n, gmres2);
+
+
+###
+function whats_going_on(n, a)
+    for j in 1:n
+        a[1] += a[j]
+    end
+end
+
+a = randn(3)
+
+@code_warntype whats_going_on(3, a)

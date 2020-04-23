@@ -99,7 +99,7 @@ Perform an Arnoldi iteration
 # Comment
 There seems to be type instability here associated with a loop
 """
-function arnoldi_update!(n, g::ProtoRes, linear_operator!, b)
+function arnoldi_update!(n::Int, g::ProtoRes, linear_operator!, b)
     if n==1
         # set everything to zero to be sure
         g.rhs .= 0.0
@@ -113,16 +113,23 @@ function arnoldi_update!(n, g::ProtoRes, linear_operator!, b)
         g.Q[:,1] .= b / g.rhs[1] # First Krylov vector
     end
     linear_operator!(g.sol, g.Q[:,n])
-    for j in 1:n
-        g.H[j, n] = dot(g.Q[:,j], g.sol)
-        g.sol .-= g.H[j, n] * g.Q[:,j]
+    @inbounds for j in 1:n
+        g.H[j, n] = 0
+        @inbounds for i in eachindex(g.sol)
+            g.H[j, n] += g.Q[i,j] * g.sol[i]
+        end
+        @inbounds for i in eachindex(g.sol)
+            g.sol[i] -= g.H[j, n] * g.Q[i,j]
+        end
     end
     if n+1 <= length(b)
         g.H[n+1, n] = norm(g.sol)
         g.Q[:, n+1] .= g.sol / g.H[n+1, n]
     end
+
     return nothing
 end
+
 
 """
 backsolve!(vector, matrix, n)
@@ -194,7 +201,7 @@ Apply sequences of givens rotation with compact representation given by cs
 Nothing
 """
 function apply_rotation!(vector, cs, n)
-    for i in 1:n
+    @inbounds for i in 1:n
         tmp1 = cs[1 + 2*(i-1)] * vector[i] - cs[2*i] * vector[i+1]
         tmp2 = cs[2*i] * vector[i] + cs[1 + 2*(i-1)] * vector[i+1]
         vector[i] = tmp1
@@ -294,7 +301,7 @@ function solve!(x, b, linear_operator!, gmres::ProtoRes; iterations = length(b),
         r = zeros(eltype(x), iterations+1)
         r[1] = norm(r_vector)
     end
-    for i in 1:iterations
+    @inbounds for i in 1:iterations
         arnoldi_update!(i, gmres, linear_operator!, r_vector)
         update_QR!(gmres, i)
         solve_optimization!(i, gmres)
