@@ -4,7 +4,7 @@ n = 100 # size of vector space
 Random.seed!(1235)
 b = randn(n) # rhs
 x = randn(n) # initial guess
-A = randn((n,n)) ./ sqrt(n) .* 1.0 + 0.8I
+A = randn((n,n)) ./ sqrt(n) .* 1.0 + 1.8I
 gmres2 = ProtoRes(b)
 x = A\b
 x += randn(n) * 0.01 * maximum(abs.(x))
