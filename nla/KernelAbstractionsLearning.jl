@@ -77,7 +77,7 @@ end
 
 ###
 n = 100
-dupl = (100, 100)
+dupl = (10^4,1)
 Random.seed!(1234)
 x = randn((n,dupl...))
 b = copy(x)
