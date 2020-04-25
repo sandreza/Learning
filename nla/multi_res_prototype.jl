@@ -2,12 +2,9 @@ using LinearAlgebra, KernelAbstractions
 
 """
 MultiRes{𝒮,𝒯,𝒱}
-
 # Description
 - A (less?) memory intensive struct for GMRES
-
 # Members
-
 - restart::𝒮 (int) number of GMRES iterations before nuking the subspace
 - residual::𝒱 (vector) residual vector
 - sol::𝒱 (vector) solution vector
@@ -16,7 +13,6 @@ MultiRes{𝒮,𝒯,𝒱}
 - H::𝒯 (array) Upper Hessenberg Matrix
 - Q::𝒯 (array) Orthonormalized Krylov Subspace
 - R::𝒯 (array) The R of the QR factorization of the UpperHessenberg matrix H
-
 # Intended Use
 - Solving linear systems iteratively
 """
@@ -36,16 +32,12 @@ end
 
 """
 MultiRes(Q; restart = length(Q))
-
 # Description
 - Constructor for the MultiRes class
-
 # Arguments
 - `Q`: (array) ; Represents solution
-
 # Keyword Arguments
 - `k`: (int) ; Default = length(Q) ; How many krylove subspace iterations we keep
-
 # Return
 - An instance of the ProtoRes class
 """
@@ -79,20 +71,16 @@ end
 
 ###
 """
-arnoldi_update!(n, g, linear_operator!, b)
-
+arnoldi_update_kernel!(n, g, linear_operator!, b)
 # Description
 Perform an Arnoldi iteration
-
 # Arguments
 - `n`: current iteration number
 - `g`: gmres struct that gets overwritten
 - `linear_operator!`: (function) Action of linear operator on vector
 - `b`: (vector). Initial guess
-
 # Return
 - nothing
-
 # linear_operator! Arguments
 - `linear_operator!(x,y)`
 # Description
@@ -105,7 +93,7 @@ Perform an Arnoldi iteration
 # Comment
 There seems to be type instability here associated with a loop
 """
-@kernel function arnoldi_update!(n::Int, g::MultiRes, linear_operator!, @Const(b))
+@kernel function arnoldi_update_kernel!(n::Int, g::MultiRes, linear_operator!, @Const(b))
     I = @index(Global)
     if n==1
         # set everything to zero to be sure
@@ -133,53 +121,50 @@ There seems to be type instability here associated with a loop
         end
     end
     if n+1 <= length(b)
-        g.H[n+1, n] = norm(g.sol)
-        g.Q[:, n+1] .= g.sol / g.H[n+1, n]
+        g.H[n+1, n, I] = norm(g.sol[:,I])
+        g.Q[:, n+1, I] .= g.sol[:,I] / g.H[n+1, n, I]
     end
 end
 
-
 """
-backsolve!(vector, matrix, n)
-
+arnoldi_update!
 # Description
-Performs a backsolve the usual way
-
+wrapper function around arnoldi_update_kernel! for specific architectures
 # Arguments
-- `vector` (array) [OVERWRITTEN] the b in Ax = b gets overwitten with the solution x
-- `matrix` (array) uppertriangular matrix for performing the backsolve
-
+- `n`: (int) current iteration number
+- `g`: (struct) gmres struct that gets overwritten
+- `linear_operator!`: (function) Action of linear operator on vector
+- `b`: (vector). Initial guess
+# Keyword Arguments
+- `ndrange`: (int) or (tuple) thread structure to iterate over
+- `cpu_threads`: (int) number of cpu threads. default = Threads.nthreads()
+- `gpu_threads`: (int) number of gpu threads. default = 256
 # Return
-- Nothing
-
-# Comment
-- this is slower than the recursive version
+- nothing
 """
-@kernel function backsolve!(vector, matrix, n)
-    I = @index(Global)
-    @inbounds for i in n:-1:1
-        vector[i, I] /= matrix[i,i, I]
-        @inbounds for j in 1:i-1
-            vector[j, I] -= matrix[j,i, I] * vector[i, I]
-        end
+function arnoldi_update!(n::Int, g::MultiRes, linear_operator!, b; ndrange = (1), cpu_threads = Threads.nthreads(), gpu_threads = 256)
+    if isa(b, Array)
+        kernel! = arnoldi_update_kernel!(CPU(), cpu_threads)
+    else
+        kernel! = arnoldi_update_kernel!(GPU(), gpu_threads)
     end
+    kernel!(n, g, linear_operator!, ndrange = ndrange)
+    return nothing
 end
 
 """
-apply_rotation!(vector, cs, n)
-
+apply_rotation!(vector, cs, n, I)
 # Description
 Apply sequences of givens rotation with compact representation given by cs
-
 # Arguments
 - `vector`: (vector) [OVERWITTEN]
 - `cs`: (vector)
 - `n`: (int)
-
+- `I`: (int) thread index
 # Return
 Nothing
 """
-function apply_rotation!(vector, cs, n, I)
+@inline function apply_rotation!(vector, cs, n, I)
     @inbounds for i in 1:n
         tmp1 = cs[1 + 2*(i-1), I] * vector[i, I] - cs[2*i, I] * vector[i+1, I]
         vector[i+1, I] = cs[2*i, I] * vector[i, I] + cs[1 + 2*(i-1), I] * vector[i+1, I]
@@ -191,22 +176,17 @@ end
 
 """
 update_QR!(gmres, n)
-
 # Description
 Given a QR decomposition of the first n-1 columns of an upper hessenberg matrix, this computes the QR decomposition associated with the first n columns
-
 # Arguments
 - `gmres`: (struct) [OVERWRITTEN] the struct has factors that are updated
 - `n`: (integer) column that needs to be updated
-
 # Return
 - nothing
-
 # Comment
 What is actually produced by the algorithm isn't the Q in the QR decomposition but rather Q^*. This is convenient since this is what is actually needed to solve the linear system
-
 """
-@kernel function update_QR!(gmres::ProtoRes, n)
+@kernel function update_QR_kernel!(gmres::MultiRes, n)
     I = @index(Global)
     if n==1
         gmres.cs[1, I] = gmres.H[1,1, I]
@@ -232,10 +212,8 @@ end
 
 """
 solve_optimization!(iteration, gmres)
-
 # Description
 Solves the optimization problem in GMRES
-
 # Arguments
 - `iteration`: (int) current iteration number
 - `gmres`: (struct) [OVERWRITTEN]
@@ -264,20 +242,16 @@ end
 
 """
 solve!(x, b, linear_operator!, gmres; iterations = length(b), residual = false)
-
 # Description
 Solves a linear system using gmres
-
 # arguments
 - `x`: (array) [OVERWRITTEN] initial guess
 - `b` (array) rhs
 - `linear_operator!`: (function) represents action of linear oeprator. assumed arguments:: (x,y) where x gets overwritten
 - `gmres`: (struct) the gmres struct that keeps track of krylov subspace information
-
 # Keyword arguments
 - `iterations`: (int) how many iterations to perform. DEFAULT = length(b)
 - `residual`: (bool) whether or not to keep track of residual norm throughout the iterations. DEFAULT = false
-
 # Return
 - Nothing if keyword argument residual = false, otherwise returns an array of numbers corresponding to the residual at each iteration
 """
