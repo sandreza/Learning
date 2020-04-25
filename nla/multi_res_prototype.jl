@@ -109,6 +109,7 @@ There seems to be type instability here associated with a loop
         g.Q[:,1,I] .= b[:,I] / g.rhs[1, I] # First Krylov vector
     end
 
+    # needs to be modified
     linear_operator!(g.sol, g.Q[:,n])
 
     @inbounds for j in 1:n
@@ -199,7 +200,7 @@ What is actually produced by the algorithm isn't the Q in the QR decomposition b
         @inbounds for i in 1:n
             gmres.R[i, n, I] = gmres.H[i, n, I]
         end
-        apply_rotation!(view(gmres.R, 1:n, n, I), view(gmres.cs,1:2*n, I), n-1, I)
+        apply_rotation!(gmres.R, gmres.cs, n-1, I)
         # Now update
         gmres.cs[1+2*(n-1), I] = gmres.R[n,n, I]
         gmres.cs[2*n, I] = gmres.H[n+1,n, I]
@@ -211,15 +212,31 @@ end
 
 
 """
-solve_optimization!(iteration, gmres)
+update_QR!
+
 # Description
-Solves the optimization problem in GMRES
+wrapper function update_QR_kernel!
+"""
+function update_QR!(args...; ndrange = (1,), cpu_threads = Threads.nthreads(), gpu_threads = 256)
+ if isa(,Array)
+     kernel! = update_QR_kernel!(CPU(), cpu_threads)
+ else
+     kernel! = update_QR_kernel!(GPU(), gpu_threads)
+ end
+ kernel!(args..., ndrange = ndrange)
+end
+
+
+"""
+solve_optimization_kernel!(iteration, gmres)
+# Description
+Creates the kernel for solving the optimization problem in GMRES
 # Arguments
 - `iteration`: (int) current iteration number
 - `gmres`: (struct) [OVERWRITTEN]
 - `b`: (array), rhs of lienar system
 """
-@kernel function solve_optimization!(n, gmres)
+@kernel function solve_optimization_kernel!(n, gmres::MultiRes)
     I = @index(Global)
     # just need to update rhs from previous iteration
     tmp1 = gmres.cs[1 + 2*(n-1), I] * gmres.rhs[n, I] - gmres.cs[2*n, I] * gmres.rhs[n+1, I]
@@ -227,7 +244,7 @@ Solves the optimization problem in GMRES
     gmres.rhs[n, I] = tmp1
 
     # note that gmres.rhs[iteration+1] is the residual
-    for i in 1:n
+    @inbounds for i in 1:n
         gmres.sol[i, I] = gmres.rhs[i, I]
     end
     # do the backsolve
@@ -239,6 +256,18 @@ Solves the optimization problem in GMRES
     end
 end
 
+"""
+solve_optimization!
+"""
+function solve_optimization!(args...; ndrange = (1,), cpu_threads = Threads.nthreads(), gpu_threads = 256)
+    if isa(,Array)
+        kernel! = solve_optimization_kernel!(CPU(), cpu_threads)
+    else
+        kernel! = solve_optimization_kernel!(GPU(), gpu_threads)
+    end
+    kernel!(args..., ndrange = ndrange)
+    return nothing
+end
 
 """
 solve!(x, b, linear_operator!, gmres; iterations = length(b), residual = false)
