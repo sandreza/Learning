@@ -1,7 +1,7 @@
 using LinearAlgebra, KernelAbstractions
 
 """
-PrototypeRes{𝒮,𝒯,𝒱}
+MultiRes{𝒮,𝒯,𝒱}
 
 # Description
 - A (less?) memory intensive struct for GMRES
@@ -105,7 +105,7 @@ Perform an Arnoldi iteration
 # Comment
 There seems to be type instability here associated with a loop
 """
-@kernel function arnoldi_update!(n::Int, g::ProtoRes, linear_operator!, @Const(b))
+@kernel function arnoldi_update!(n::Int, g::MultiRes, linear_operator!, @Const(b))
     I = @index(Global)
     if n==1
         # set everything to zero to be sure

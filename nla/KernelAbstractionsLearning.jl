@@ -1,6 +1,7 @@
 using KernelAbstractions, Random, LinearAlgebra
 using BenchmarkTools
 
+###
 function c_backsolve!(vector, matrix, n, index_set)
     @inbounds for k in index_set
         @inbounds for i in n:-1:1
@@ -102,3 +103,22 @@ end
 ###
 @benchmark c_backsolve!(x, A, n, CartesianIndices(dupl))
 @benchmark t_backsolve!(x, A, n, CartesianIndices(dupl))
+
+
+###
+@kernel function make_zero(A)
+    I = @index(Global, NTuple)
+    A[:, 2, I...] .= 0.0
+end
+
+Random.seed!(1234)
+n = 3
+dupl = 2
+A = randn((n, n, dupl))
+
+zero_kernel = make_zero(CPU(), Threads.nthreads())
+event = zero_kernel(A, ndrange = (dupl,))
+wait(event)
+display(A)
+
+###
