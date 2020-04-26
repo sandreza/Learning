@@ -32,3 +32,6 @@ end
 a = randn(3)
 
 @code_warntype whats_going_on(3, a)
+
+
+###

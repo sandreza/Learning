@@ -41,32 +41,97 @@ MultiRes(Q; restart = length(Q))
 # Return
 - An instance of the ProtoRes class
 """
-function MultiRes(Q, m, threads; restart = m, permute_f = [])
-    residual = zeros(eltype(Q), (m, threads))
+function MultiRes(b, m, threads; restart = m, permute_f = [])
+    residual = zeros(eltype(b), (m, threads))
     k = restart
-    sol = zeros(eltype(Q), (m, threads))
-    rhs = zeros(eltype(Q), k+1, threads)
-    cs = zeros(eltype(Q), 2 * k, threads)
-    kQ = zeros(eltype(Q), (m, k+1 , threads))
-    H = zeros(eltype(Q), (k+1, k, threads))
-    R  = zeros(eltype(Q), (k+1, k, threads))
-    Q_permute = restructure_vec(Q, permute_f)
-    b_permute = copy(Q_permute)
+    sol = zeros(eltype(b), (m, threads))
+    rhs = zeros(eltype(b), (k+1, threads))
+    # Q_permute = restructure_vec(Q, permute_f)
+    # b_permute = copy(Q_permute)
+    Q_permute = zeros(eltype(b), (m, threads))
+    b_permute = zeros(eltype(b), (m, threads))
+    cs = zeros(eltype(b), 2 * k, threads)
+    Q = zeros(eltype(b), (m, k+1 , threads))
+    H = zeros(eltype(b), (k+1, k, threads))
+    R  = zeros(eltype(b), (k+1, k, threads))
+    # The k+1 are not bugs, it is just more convenient to make them a slight bit larger
     # create permute_b (For permute back) here
     # the other is permute forward
     container = [
         restart,
         residual,
+        Q_permute,
+        b_permute,
         sol,
         rhs,
         cs,
         H,
-        kQ,
+        Q,
         R
     ]
     return MultiRes(container...)
 end
 
+###
+"""
+initialize_arnoldi_kernel!(g, b)
+
+# Description
+- First step of Arnoldi Iteration is to define first Krylov vector. Additionally sets things equal to zero
+
+# Arguments
+- `g`: (struct) [OVERWRITTEN] the gmres struct
+- `b`: (array) The right hand side
+
+# Return
+nothing
+"""
+@kernel function initialize_arnoldi_kernel!(g, b)
+    I = @index(Global)
+    # set everything to zero to be sure
+    g.rhs[:, I] .= 0.0
+    g.Q[:,:, I] .= 0.0
+    g.R[:,:, I] .= 0.0
+    g.cs[:,  I] .= 0.0
+    g.sol[:, I] .= 0.0
+    g.H[:,:, I] .= 0.0
+    g.Q_permute[:, I] .= 0.0
+    g.b_permute[:, I] .= 0.0
+    # now start computations
+    # restructure_vec!(b_permute, b, permute_f)
+    g.rhs[1, I]   = norm(b[:,I]) # for later
+    g.Q[:, 1, I] .= b[:,I] / g.rhs[1, I] # First Krylov vector
+end
+
+"""
+initialize_arnoldi!(g, b)
+
+# Description
+- First step of Arnoldi Iteration is to define first Krylov vector. Additionally sets things equal to zero. Calls the initial_arnoldi_kernel!
+
+# Arguments
+- `g`: (struct) [OVERWRITTEN] the gmres struct
+- `b`: (array) The right hand side
+
+# Keyword Arguments
+- `cpu_threads`: (int) number of cpu threads to use default = Threads.nthreads()
+- `gpu_threads`: (int) number of gpu threads to use. default = 256
+- `ndrange`: (tuple or int) number of independent tasks. default = (1,)
+
+# Return
+event: a KernelAbstractions structure
+"""
+function initialize_arnoldi!(g,b; ndrange = (1,), cpu_threads = Threads.nthreads(), gpu_threads = 256)
+    if isa(b,Array)
+        kernel! = initialize_arnoldi_kernel!(CPU(), cpu_threads)
+    else
+        kernel! = initialize_arnoldi_kernel!(GPU(), gpu_threads)
+    end
+    event = kernel!(g, b, ndrange = ndrange)
+    return event
+end
+
+###
 
 
 ###
@@ -93,31 +158,14 @@ Perform an Arnoldi iteration
 # Comment
 There seems to be type instability here associated with a loop
 """
-@kernel function arnoldi_update_kernel!(n::Int, g::MultiRes, linear_operator!, @Const(b))
+@kernel function arnoldi_update_kernel!(n::Int, g::MultiRes, @Const(b))
     I = @index(Global)
-    if n==1
-        # set everything to zero to be sure
-        g.rhs[:, I] .= 0.0
-        g.Q[:,:, I] .= 0.0
-        g.R[:,:, I] .= 0.0
-        g.cs[:,  I] .= 0.0
-        g.sol[:, I] .= 0.0
-        g.H[:,:, I] .= 0.0
-        # now start computations
-        restructure_vec!(b_permute, b, permute_f)
-        g.rhs[1,I] = norm(b[:,I]) # for later
-        g.Q[:,1,I] .= b[:,I] / g.rhs[1, I] # First Krylov vector
-    end
-
-    # needs to be modified
-    linear_operator!(g.sol, g.Q[:,n])
-
     @inbounds for j in 1:n
         g.H[j, n, I] = 0
-        @inbounds for i in eachindex(g.sol)
+        @inbounds for i in eachindex(g.sol[:,I])
             g.H[j, n, I] += g.Q[i,j, I] * g.sol[i, I]
         end
-        @inbounds for i in eachindex(g.sol)
+        @inbounds for i in eachindex(g.sol[:,I])
             g.sol[i, I] -= g.H[j, n, I] * g.Q[i,j, I]
         end
     end
@@ -134,25 +182,25 @@ wrapper function around arnoldi_update_kernel! for specific architectures
 # Arguments
 - `n`: (int) current iteration number
 - `g`: (struct) gmres struct that gets overwritten
-- `linear_operator!`: (function) Action of linear operator on vector
 - `b`: (vector). Initial guess
 # Keyword Arguments
 - `ndrange`: (int) or (tuple) thread structure to iterate over
 - `cpu_threads`: (int) number of cpu threads. default = Threads.nthreads()
 - `gpu_threads`: (int) number of gpu threads. default = 256
 # Return
-- nothing
+- event. A KernelAbstractions object
 """
-function arnoldi_update!(n::Int, g::MultiRes, linear_operator!, b; ndrange = (1), cpu_threads = Threads.nthreads(), gpu_threads = 256)
+function arnoldi_update!(n::Int, g::MultiRes, b; ndrange = (1), cpu_threads = Threads.nthreads(), gpu_threads = 256)
     if isa(b, Array)
         kernel! = arnoldi_update_kernel!(CPU(), cpu_threads)
     else
         kernel! = arnoldi_update_kernel!(GPU(), gpu_threads)
     end
-    kernel!(n, g, linear_operator!, ndrange = ndrange)
-    return nothing
+    event = kernel!(n, g, linear_operator!, ndrange = ndrange)
+    return event
 end
 
+###
 """
 apply_rotation!(vector, cs, n, I)
 # Description
@@ -174,7 +222,55 @@ Nothing
     return nothing
 end
 
+###
+"""
+initialize_QR_kernel!(gmres::MultiRes)
 
+# Description
+initializes the QR decomposition of the UpperHesenberg Matrix
+
+# Arguments
+- `gmres`: (struct) [OVERWRITTEN] the gmres struct
+
+# Return
+nothing
+"""
+@kernel function initialize_QR_kernel!(gmres::MultiRes)
+    I = @index(Global)
+    gmres.cs[1, I] = gmres.H[1,1, I]
+    gmres.cs[2, I] = gmres.H[2,1, I]
+    gmres.R[1, 1, I] = sqrt(gmres.cs[1, I]^2 + gmres.cs[2, I]^2)
+    gmres.cs[1, I] /= gmres.R[1,1, I]
+    gmres.cs[2, I] /= -gmres.R[1,1, I]
+end
+
+"""
+initialize_QR!(gmres::MultiRes; ndrange = (1,), cpu_threads = Threads.nthreads(), gpu_threads = 256)
+
+# Description
+utilizes initialize_QR_kernel! to initialize the QR decomposition for the upper hessenberg matrix
+
+# Arguments
+- `gmres`: (struct) [OVERWRITTEN]
+
+# Keyword Arguments
+- `ndrange`: (int) or (tuple) thread structure to iterate over
+- `cpu_threads`: (int) number of cpu threads. default = Threads.nthreads()
+- `gpu_threads`: (int) number of gpu threads. default = 256
+# Return
+- event. A KernelAbstractions object
+"""
+function initialize_QR!(gmres::MultiRes; ndrange = (1,), cpu_threads = Threads.nthreads(), gpu_threads = 256)
+    if isa(gmres.cs, Array)
+        kernel! = initialize_QR_kernel!(CPU(), cpu_threads)
+    else
+        kernel! = initialize_QR_kernel!(GPU(), gpu_threads)
+    end
+    event = kernel!(gmres, ndrange = ndrange)
+    return event
+end
+
+###
 """
 update_QR!(gmres, n)
 # Description
@@ -189,25 +285,17 @@ What is actually produced by the algorithm isn't the Q in the QR decomposition b
 """
 @kernel function update_QR_kernel!(gmres::MultiRes, n)
     I = @index(Global)
-    if n==1
-        gmres.cs[1, I] = gmres.H[1,1, I]
-        gmres.cs[2, I] = gmres.H[2,1, I]
-        gmres.R[1,1, I] = sqrt(gmres.cs[1, I]^2 + gmres.cs[2, I]^2)
-        gmres.cs[1, I] /= gmres.R[1,1, I]
-        gmres.cs[2, I] /= -gmres.R[1,1, I]
-    else
-        # Apply previous Q to new column
-        @inbounds for i in 1:n
-            gmres.R[i, n, I] = gmres.H[i, n, I]
-        end
-        apply_rotation!(gmres.R, gmres.cs, n-1, I)
-        # Now update
-        gmres.cs[1+2*(n-1), I] = gmres.R[n,n, I]
-        gmres.cs[2*n, I] = gmres.H[n+1,n, I]
-        gmres.R[n,n, I] = sqrt(gmres.cs[1+2*(n-1), I]^2 + gmres.cs[2*n, I]^2)
-        gmres.cs[1+2*(n-1), I] /= gmres.R[n,n, I]
-        gmres.cs[2*n, I] /= -gmres.R[n,n, I]
+    # Apply previous Q to new column
+    @inbounds for i in 1:n
+        gmres.R[i, n, I] = gmres.H[i, n, I]
     end
+    apply_rotation!(gmres.R, gmres.cs, n-1, I)
+    # Now update
+    gmres.cs[1+2*(n-1), I] = gmres.R[n, n, I]
+    gmres.cs[2*n, I] = gmres.H[n+1,n, I]
+    gmres.R[n, n, I] = sqrt(gmres.cs[1+2*(n-1), I]^2 +gmres.cs[2*n, I]^2)
+    gmres.cs[1+2*(n-1), I] /= gmres.R[n, n, I]
+    gmres.cs[2*n, I] /= -gmres.R[n, n, I]
 end
 
 
@@ -223,7 +311,8 @@ function update_QR!(args...; ndrange = (1,), cpu_threads = Threads.nthreads(), g
  else
      kernel! = update_QR_kernel!(GPU(), gpu_threads)
  end
- kernel!(args..., ndrange = ndrange)
+ event = kernel!(args..., ndrange = ndrange)
+ return event
 end
 
 
@@ -243,7 +332,7 @@ Creates the kernel for solving the optimization problem in GMRES
     gmres.rhs[n+1, I] = gmres.cs[2*n, I] * gmres.rhs[n, I] + gmres.cs[1 + 2*(n-1), I] * gmres.rhs[n+1, I]
     gmres.rhs[n, I] = tmp1
 
-    # note that gmres.rhs[iteration+1] is the residual
+    # gmres.rhs[iteration+1] is the residual
     @inbounds for i in 1:n
         gmres.sol[i, I] = gmres.rhs[i, I]
     end
@@ -265,10 +354,11 @@ function solve_optimization!(args...; ndrange = (1,), cpu_threads = Threads.nthr
     else
         kernel! = solve_optimization_kernel!(GPU(), gpu_threads)
     end
-    kernel!(args..., ndrange = ndrange)
-    return nothing
+    event = kernel!(args..., ndrange = ndrange)
+    return event
 end
 
+###
 """
 solve!(x, b, linear_operator!, gmres; iterations = length(b), residual = false)
 # Description
@@ -284,27 +374,41 @@ Solves a linear system using gmres
 # Return
 - Nothing if keyword argument residual = false, otherwise returns an array of numbers corresponding to the residual at each iteration
 """
-function solve!(x, b, linear_operator!, gmres::ProtoRes; iterations = length(b), residual = false)
+function solve!(x, b, linear_operator!, gmres::MultiRes; iterations = length(b), residual = false)
     x_init = copy(x)
     linear_operator!(x, x_init)
     r_vector = b - x
-    if residual
-        r = zeros(eltype(x), iterations+1)
-        r[1] = norm(r_vector)
-    end
     @inbounds for i in 1:iterations
-        arnoldi_update!(i, gmres, linear_operator!, r_vector)
-        update_QR!(gmres, i)
-        solve_optimization!(i, gmres)
+        if n ==1
+            # initialize_arnoldi(gmres, r_vector)
+        else
+            tmpsol = gmres.sol
+            tmprhs = gmres.Q[:, n, :]
+            linear_operator!(tmpsol, tmprhs)
+        end
+        # event = arnoldi_update!(i, gmres, r_vector, ndrange = length(gmres.sol[:,1]))
+        # wait(event)
+        #=
+        event = update_QR!(gmres, i)
+        wait(event)
+        event = solve_optimization!(i, gmres)
+        wait(event)
         if residual
-            r[i+1] = abs(gmres.rhs[i+1])
+            r[i+1, :] .= abs.(gmres.rhs[i+1, :])
         end
     end
     tmp = gmres.Q[:, 1:iterations] *  gmres.sol[1:iterations]
     x .= x_init + tmp
-    if residual
-        return r
-    else
+    =#
         return nothing
+    end
+end
+
+###
+function closure_linear_operator_multi!(A, n)
+    function linear_operator!(x, y)
+        for i in 1:n
+            mul!(view(x,:,i), view(A, :, :, i), view(y,:,i))
+        end
     end
 end
