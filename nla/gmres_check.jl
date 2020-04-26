@@ -7,3 +7,10 @@ b = randn(n, ni) # rhs
 x = randn(n, ni) # initial guess
 A = randn((n,n, ni)) ./ sqrt(n) .* 1.0
 gmres = ParallelGMRES(b)
+
+
+###
+a = zeros(1)
+for i in 1:10
+    a[1] += 1
+end

@@ -146,7 +146,7 @@ function initialize_gmres!(gmres::ParallelGMRES; ndrange = gmres.n, cpu_threads 
     else
         kernel! = intialize_gmres_kernel!(GPU(), gpu_threads)
     end
-    event = kernel!(gmres)
+    event = kernel!(gmres, ndrange = ndrange)
     return event
 end
 
@@ -236,6 +236,7 @@ nothing
             g.sol[i, I] -= g.H[j, n, I] * g.Q[i,j, I]
         end
     end
+    # just to prevent some indexing errors
     if n+1 <= length(g.m)
         g.H[n+1, n, I] = norm(g.sol[:,I])
         g.Q[:, n+1, I] .= g.sol[:,I] ./ g.H[n+1, n, I]
@@ -306,7 +307,62 @@ nothing
             gmres.sol[j, I] -= gmres.R[j,i, I] * gmres.sol[i, I]
         end
     end
+
     return nothing
+end
+
+"""
+function gmres_update_kernel!(i, gmres, I)
+
+# Description
+kernel that calls
+- update_arnoldi!
+- update_QR!
+- solve_optimization!
+Which is the heart of the gmres algorithm
+
+# Arguments
+- `i`: (int) interation index
+- `gmres`: (struct) gmres struct
+- `I`: (int) thread index
+
+# Return
+kernel object from KernelAbstractions
+"""
+@kernel function gmres_update_kernel!(i, gmres::ParallelGMRES, I)
+    I = @index(Global)
+    update_arnoldi!(i, gmres, I)
+    update_QR!(i, gmres, I)
+    solve_optimization!(i, gmres, I)
+end
+
+
+"""
+gmres_update!(i, gmres; ndrange = gmres.n, cpu_threads = Threads.nthreads(), gpu_threads = 256)
+
+# Description
+Calls the gmres_update_kernel!
+
+# Arguments
+- `i`: (int) iteration number
+- `gmres`: (struct) gmres struct
+
+# Keyword Arguments
+- `ndrange`: (int) or (tuple) thread structure to iterate over
+- `cpu_threads`: (int) number of cpu threads. default = Threads.nthreads()
+- `gpu_threads`: (int) number of gpu threads. default = 256
+
+# Return
+event. A KernelAbstractions object
+"""
+function gmres_update!(i, gmres; ndrange = gmres.n, cpu_threads = Threads.nthreads(), gpu_threads = 256)
+    if isa(gmres.b, Array)
+        kernel! = gmres_update_kernel!(CPU(), cpu_threads)
+    else
+        kernel! = gmres_update_kernel!(GPU(), gpu_threads)
+    end
+    event = kernel!(i, gmres, ndrange = ndrange)
+    return event
 end
 
 # Several utility functions
@@ -331,8 +387,56 @@ Nothing
     return nothing
 end
 
+"""
+construct_solution_kernel!(i, gmres)
+
+# Description
+given step i of the gmres iteration, constructs the "best" solution of the linear system for the given Krylov subspace
+
+# Arguments
+- `i`: (int) gmres iteration
+- `gmres`: (struct) gmres struct
+
+# Return
+kernel object from KernelAbstractions
+"""
+@kernel function construct_solution_kernel!(i, gmres)
+    # TODO: make this into a Kernel
+    M, I = @index(Global, NTuple)
+    tmp = zeros(eltype(gmres.b),1)
+    @inbounds for j in 1:i
+        tmp[1] += gmres.Q[M, j, I] *  gmres.sol[j, I]
+    end
+    gmres.x[M , N] += tmp[1] # since previously gmres.x held the intial value
+end
 
 
+"""
+construct_solution!(i, gmres; ndrange = size(gmres.x), cpu_threads = Threads.nthreads(), gpu_threads = 256)
+
+# Description
+Calls construct_solution_kernel! for constructing the solution
+
+# Arguments
+- `i`: (int) iteration number
+- `gmres`: (struct) gmres struct
+
+# Keyword Arguments
+- `ndrange`: (int) or (tuple) thread structure to iterate over
+- `cpu_threads`: (int) number of cpu threads. default = Threads.nthreads()
+- `gpu_threads`: (int) number of gpu threads. default = 256
+
+# Return
+event. A KernelAbstractions object
+"""
+function construct_solution!(i, gmres; ndrange = size(gmres.x), cpu_threads = Threads.nthreads(), gpu_threads = 256)
+    if isa(gmres.b, Array)
+        kernel! = construct_solution_kernel!(CPU(), cpu_threads)
+    else
+        kernel! = construct_solution_kernel!(GPU(), gpu_threads)
+    end
+    return kernel!(i, gmres, ndrange = ndrange)
+end
 
 """
 solve!(x, b, linear_operator!, gmres; iterations = gmres.k_n)
@@ -348,8 +452,10 @@ Solves a linear system using gmres
 # Return
 Nothing if keyword argument residual = false, otherwise returns an array of numbers corresponding to the residual at each iteration
 """
-function solve!(x, b, linear_operator!, gmres::MultiRes; iterations = gmres.k_n)
+function solve!(x, b, linear_operator!, gmres::ParallelGMRES; iterations = gmres.k_n)
     x_init = copy(x)
+    # TODO: make this line work with CLIMA
+    gmres.x .= x
     # TODO: make linear_operator! work with CLIMA
     linear_operator!(x, x_init)
     r_vector = b - x
@@ -366,15 +472,11 @@ function solve!(x, b, linear_operator!, gmres::MultiRes; iterations = gmres.k_n)
     @inbounds for i in 2:iterations
         # TODO: make linear_operator! work with CLIMA
         linear_operator!(gmres.sol, view(gmres.Q, :, i, :))
-        event = gmres_update!(gmres, I)
+        event = gmres_update!(i, gmres, I)
         wait(event)
     end
-
-    # TODO: make this into a Kernel
-    for i in 1:ind_events
-        tmp = gmres.Q[:, 1:iterations, i] *  gmres.sol[1:iterations, i]
-        x[:,i] .= x_init[:, i] + tmp
-    end
-
+    construct_solution!(iterations, gmres)
+    # TODO: make the following line work with CLIMA
+    x .= gmres.x
     return nothing
 end
