@@ -70,7 +70,7 @@ function ParallelGMRES(Qrhs; m = length(Qrhs[:,1]), n = length(Qrhs[1,:]), subsp
     residual = zeros(eltype(Qrhs), (k_n, n))
     b = zeros(eltype(Qrhs), (m, n))
     x = zeros(eltype(Qrhs), (m, n))
-    sol = zeros(eltype(Qrhs), (k_n + 1, n))
+    sol = zeros(eltype(Qrhs), (m, n))
     rhs = zeros(eltype(Qrhs), (m, n))
     cs = zeros(eltype(Qrhs), (2 * k_n, n))
     Q = zeros(eltype(Qrhs), (m, k_n+1 , n))
