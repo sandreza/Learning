@@ -99,7 +99,7 @@ nothing
     g.b_permute[:, I] .= 0.0
     # now start computations
     # restructure_vec!(b_permute, b, permute_f)
-    g.rhs[1, I]   = norm(b[:,I]) # for later
+    g.rhs[1, I]   = norm(b[:, I]) # for later
     g.Q[:, 1, I] .= b[:,I] / g.rhs[1, I] # First Krylov vector
 end
 
@@ -160,18 +160,22 @@ There seems to be type instability here associated with a loop
 """
 @kernel function arnoldi_update_kernel!(n::Int, g::MultiRes, @Const(b))
     I = @index(Global)
+
     @inbounds for j in 1:n
         g.H[j, n, I] = 0
+        # dot products
         @inbounds for i in eachindex(g.sol[:,I])
             g.H[j, n, I] += g.Q[i,j, I] * g.sol[i, I]
         end
+        # orthogonalize latest Krylov Vector
         @inbounds for i in eachindex(g.sol[:,I])
             g.sol[i, I] -= g.H[j, n, I] * g.Q[i,j, I]
         end
     end
-    if n+1 <= length(b)
+
+    if n+1 <= length(g.sol[:,I])
         g.H[n+1, n, I] = norm(g.sol[:,I])
-        g.Q[:, n+1, I] .= g.sol[:,I] / g.H[n+1, n, I]
+        g.Q[:, n+1, I] .= g.sol[:,I] ./ g.H[n+1, n, I]
     end
 end
 
@@ -305,13 +309,13 @@ update_QR!
 # Description
 wrapper function update_QR_kernel!
 """
-function update_QR!(args...; ndrange = (1,), cpu_threads = Threads.nthreads(), gpu_threads = 256)
- if isa(,Array)
+function update_QR!(gmres::MultiRes, n; ndrange = (1,), cpu_threads = Threads.nthreads(), gpu_threads = 256)
+ if isa(gmres.sol, Array)
      kernel! = update_QR_kernel!(CPU(), cpu_threads)
  else
      kernel! = update_QR_kernel!(GPU(), gpu_threads)
  end
- event = kernel!(args..., ndrange = ndrange)
+ event = kernel!(gmres::MultiRes, n, ndrange = ndrange)
  return event
 end
 
@@ -344,6 +348,7 @@ Creates the kernel for solving the optimization problem in GMRES
         end
     end
 end
+###
 
 """
 solve_optimization!
@@ -378,14 +383,23 @@ function solve!(x, b, linear_operator!, gmres::MultiRes; iterations = length(b),
     x_init = copy(x)
     linear_operator!(x, x_init)
     r_vector = b - x
-    @inbounds for i in 1:iterations
-        if n ==1
-            # initialize_arnoldi(gmres, r_vector)
-        else
-            tmpsol = gmres.sol
-            tmprhs = gmres.Q[:, n, :]
-            linear_operator!(tmpsol, tmprhs)
-        end
+    # independent events
+    ind_events = length(r_vector[1,:])
+    # First Initialize
+    event = initialize_arnoldi!(gmres, r_vector, ndrange = ind_events)
+    wait(event)
+    linear_operator!(gmres.sol, view(gmres.Q, :, 1, :))
+    event = arnoldi_update!(1, gmres, r_vector, ndrange = ind_events)
+    wait(event)
+    event = initialize_QR!(gmres, ndrange = ind_events)
+    wait(event)
+    event = update_QR!(gmres, 1)
+    wait(event)
+    # Now we can actually start on the iterations
+    @inbounds for i in 2:iterations
+        tmpsol = gmres.sol
+        tmprhs = gmres.Q[:, n, :]
+        linear_operator!(tmpsol, tmprhs)
         # event = arnoldi_update!(i, gmres, r_vector, ndrange = length(gmres.sol[:,1]))
         # wait(event)
         #=
