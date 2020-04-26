@@ -1,6 +1,6 @@
 include("multi_res_prototype.jl")
 using LinearAlgebra, Plots, Random
-n = 5 # size of vector space
+n  = 5  # size of vector space
 ni = 3 # number of independent linear solves
 Random.seed!(1235)
 b = randn(n, ni) # rhs
