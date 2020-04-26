@@ -143,7 +143,6 @@ Perform an Arnoldi iteration
 - `n`: current iteration number
 - `g`: gmres struct that gets overwritten
 - `linear_operator!`: (function) Action of linear operator on vector
-- `b`: (vector). Initial guess
 # Return
 - nothing
 # linear_operator! Arguments
@@ -158,7 +157,7 @@ Perform an Arnoldi iteration
 # Comment
 There seems to be type instability here associated with a loop
 """
-@kernel function arnoldi_update_kernel!(n::Int, g::MultiRes, @Const(b))
+@kernel function arnoldi_update_kernel!(n::Int, g::MultiRes)
     I = @index(Global)
 
     @inbounds for j in 1:n
@@ -186,21 +185,22 @@ wrapper function around arnoldi_update_kernel! for specific architectures
 # Arguments
 - `n`: (int) current iteration number
 - `g`: (struct) gmres struct that gets overwritten
-- `b`: (vector). Initial guess
+
 # Keyword Arguments
 - `ndrange`: (int) or (tuple) thread structure to iterate over
 - `cpu_threads`: (int) number of cpu threads. default = Threads.nthreads()
 - `gpu_threads`: (int) number of gpu threads. default = 256
+
 # Return
 - event. A KernelAbstractions object
 """
-function arnoldi_update!(n::Int, g::MultiRes, b; ndrange = (1), cpu_threads = Threads.nthreads(), gpu_threads = 256)
+function arnoldi_update!(n::Int, g::MultiRes; ndrange = (1), cpu_threads = Threads.nthreads(), gpu_threads = 256)
     if isa(b, Array)
         kernel! = arnoldi_update_kernel!(CPU(), cpu_threads)
     else
         kernel! = arnoldi_update_kernel!(GPU(), gpu_threads)
     end
-    event = kernel!(n, g, linear_operator!, ndrange = ndrange)
+    event = kernel!(n, g, ndrange = ndrange)
     return event
 end
 
@@ -293,13 +293,14 @@ What is actually produced by the algorithm isn't the Q in the QR decomposition b
     @inbounds for i in 1:n
         gmres.R[i, n, I] = gmres.H[i, n, I]
     end
-    apply_rotation!(gmres.R, gmres.cs, n-1, I)
+    apply_rotation!(view(gmres.R, 1:n, n, I), gmres.cs, n-1, I)
     # Now update
     gmres.cs[1+2*(n-1), I] = gmres.R[n, n, I]
     gmres.cs[2*n, I] = gmres.H[n+1,n, I]
-    gmres.R[n, n, I] = sqrt(gmres.cs[1+2*(n-1), I]^2 +gmres.cs[2*n, I]^2)
+    gmres.R[n, n, I] = sqrt(gmres.cs[1+2*(n-1), I]^2 + gmres.cs[2*n, I]^2)
     gmres.cs[1+2*(n-1), I] /= gmres.R[n, n, I]
     gmres.cs[2*n, I] /= -gmres.R[n, n, I]
+
 end
 
 
@@ -308,15 +309,24 @@ update_QR!
 
 # Description
 wrapper function update_QR_kernel!
+
+# Arguments
+- `gmres`: (struct) [OVERWRITTEN]
+- `n`: (int) iteration number
+
+# Keyword Arguments
+- `ndrange`: (int) or (tuple) thread structure to iterate over
+- `cpu_threads`: (int) number of cpu threads. default = Threads.nthreads()
+- `gpu_threads`: (int) number of gpu threads. default = 256
 """
 function update_QR!(gmres::MultiRes, n; ndrange = (1,), cpu_threads = Threads.nthreads(), gpu_threads = 256)
- if isa(gmres.sol, Array)
-     kernel! = update_QR_kernel!(CPU(), cpu_threads)
- else
-     kernel! = update_QR_kernel!(GPU(), gpu_threads)
- end
- event = kernel!(gmres::MultiRes, n, ndrange = ndrange)
- return event
+    if isa(gmres.sol, Array)
+        kernel! = update_QR_kernel!(CPU(), cpu_threads)
+    else
+        kernel! = update_QR_kernel!(GPU(), gpu_threads)
+    end
+    event = kernel!(gmres::MultiRes, n, ndrange = ndrange)
+    return event
 end
 
 
@@ -327,7 +337,8 @@ Creates the kernel for solving the optimization problem in GMRES
 # Arguments
 - `iteration`: (int) current iteration number
 - `gmres`: (struct) [OVERWRITTEN]
-- `b`: (array), rhs of lienar system
+# Return
+nothing
 """
 @kernel function solve_optimization_kernel!(n, gmres::MultiRes)
     I = @index(Global)
@@ -352,14 +363,28 @@ end
 
 """
 solve_optimization!
+# Description
+Uses the solve_optimization_kernel! for solving the optimization problem in GMRES
+
+# Arguments
+- `iteration`: (int) current iteration number
+- `gmres`: (struct) [OVERWRITTEN]
+
+# Keyword Arguments
+- `ndrange`: (int) or (tuple) thread structure to iterate over
+- `cpu_threads`: (int) number of cpu threads. default = Threads.nthreads()
+- `gpu_threads`: (int) number of gpu threads. default = 256
+
+# Return
+event. A KernelAbstractions object
 """
-function solve_optimization!(args...; ndrange = (1,), cpu_threads = Threads.nthreads(), gpu_threads = 256)
-    if isa(,Array)
+function solve_optimization!(n, gmres::MultiRes; ndrange = (1,), cpu_threads = Threads.nthreads(), gpu_threads = 256)
+    if isa(gmres.sol,Array)
         kernel! = solve_optimization_kernel!(CPU(), cpu_threads)
     else
         kernel! = solve_optimization_kernel!(GPU(), gpu_threads)
     end
-    event = kernel!(args..., ndrange = ndrange)
+    event = kernel!(n, gmres, ndrange = ndrange)
     return event
 end
 
@@ -381,41 +406,52 @@ Solves a linear system using gmres
 """
 function solve!(x, b, linear_operator!, gmres::MultiRes; iterations = length(b), residual = false)
     x_init = copy(x)
+    # TODO: make linear_operator! work with CLIMA
     linear_operator!(x, x_init)
     r_vector = b - x
     # independent events
     ind_events = length(r_vector[1,:])
     # First Initialize
+    # TODO: fuse initialization
     event = initialize_arnoldi!(gmres, r_vector, ndrange = ind_events)
     wait(event)
     linear_operator!(gmres.sol, view(gmres.Q, :, 1, :))
-    event = arnoldi_update!(1, gmres, r_vector, ndrange = ind_events)
+    event = arnoldi_update!(1, gmres, ndrange = ind_events)
     wait(event)
     event = initialize_QR!(gmres, ndrange = ind_events)
     wait(event)
     event = update_QR!(gmres, 1)
     wait(event)
+    event = solve_optimization!(1, gmres, ndrange = ind_events)
+    wait(event)
+    if residual
+        residual_container = []
+        push!(residual_container, abs.(gmres.rhs[2,:]))
+    end
     # Now we can actually start on the iterations
     @inbounds for i in 2:iterations
-        tmpsol = gmres.sol
-        tmprhs = gmres.Q[:, n, :]
-        linear_operator!(tmpsol, tmprhs)
-        # event = arnoldi_update!(i, gmres, r_vector, ndrange = length(gmres.sol[:,1]))
-        # wait(event)
-        #=
-        event = update_QR!(gmres, i)
+        # TODO: make linear_operator! work with CLIMA
+        linear_operator!(gmres.sol, view(gmres.Q, :, i, :))
+        # TODO: fuse these
+        event = arnoldi_update!(i, gmres, ndrange = ind_events)
         wait(event)
-        event = solve_optimization!(i, gmres)
+        event = update_QR!(gmres, i, ndrange = ind_events)
+        wait(event)
+        event = solve_optimization!(i, gmres, ndrange = ind_events)
         wait(event)
         if residual
-            r[i+1, :] .= abs.(gmres.rhs[i+1, :])
+            push!(residual_container, abs.(gmres.rhs[i+1,:]))
         end
     end
-    tmp = gmres.Q[:, 1:iterations] *  gmres.sol[1:iterations]
-    x .= x_init + tmp
-    =#
-        return nothing
+    # TODO: make this into a Kernel
+    for i in 1:ind_events
+        tmp = gmres.Q[:, 1:iterations, i] *  gmres.sol[1:iterations, i]
+        x[:,i] .= x_init[:, i] + tmp
     end
+    if residual
+        return residual_container
+    end
+    return nothing
 end
 
 ###
