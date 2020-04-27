@@ -65,17 +65,17 @@ Constructor for the ParallelGMRES struct
 # Return
 ParalellGMRES struct
 """
-function ParallelGMRES(Qrhs; m = length(Qrhs[:,1]), n = length(Qrhs[1,:]), subspace_size = m, atol = sqrt(eps(eltype(Qrhs))), rtol = sqrt(eps(eltype(Qrhs))))
+function ParallelGMRES(Qrhs; m = length(Qrhs[:,1]), n = length(Qrhs[1,:]), subspace_size = m, atol = sqrt(eps(eltype(Qrhs))), rtol = sqrt(eps(eltype(Qrhs))), ArrayType = Array)
     k_n = subspace_size
-    residual = zeros(eltype(Qrhs), (k_n, n))
-    b = zeros(eltype(Qrhs), (m, n))
-    x = zeros(eltype(Qrhs), (m, n))
-    sol = zeros(eltype(Qrhs), (m, n))
-    rhs = zeros(eltype(Qrhs), (k_n + 1, n))
-    cs = zeros(eltype(Qrhs), (2 * k_n, n))
-    Q = zeros(eltype(Qrhs), (m, k_n+1 , n))
-    H = zeros(eltype(Qrhs), (k_n+1, k_n, n))
-    R  = zeros(eltype(Qrhs), (k_n+1, k_n, n))
+    residual = ArrayType(zeros(eltype(Qrhs), (k_n, n)))
+    b = ArrayType(zeros(eltype(Qrhs), (m, n)))
+    x = ArrayType(zeros(eltype(Qrhs), (m, n)))
+    sol = ArrayType(zeros(eltype(Qrhs), (m, n)))
+    rhs = ArrayType(zeros(eltype(Qrhs), (k_n + 1, n)))
+    cs = ArrayType(zeros(eltype(Qrhs), (2 * k_n, n)))
+    Q = ArrayType(zeros(eltype(Qrhs), (m, k_n+1 , n)))
+    H = ArrayType(zeros(eltype(Qrhs), (k_n+1, k_n, n)))
+    R  = ArrayType(zeros(eltype(Qrhs), (k_n+1, k_n, n)))
     container = [
         atol,
         rtol,
@@ -456,16 +456,16 @@ Nothing if keyword argument residual = false, otherwise returns an array of numb
 function solve!(x, b, linear_operator!, gmres::ParallelGMRES; iterations = gmres.k_n)
     x_init = copy(x)
     # TODO: make this line work with CLIMA
-    gmres.x .= x
+    gmres.x .= x # MODIFY THIS LINE
     # TODO: make linear_operator! work with CLIMA
     linear_operator!(x, x_init)
     r_vector = b - x
     # Save first candidate Krylov vector
     # TODO: make this work with CLIMA
-    gmres.b .= r_vector # perhaps throw in initialize?
+    gmres.b .= r_vector # MODIFY THIS LINE
     # Save second candidate Krylov vector
     # TODO: make linear_operator! work with CLIMA
-    linear_operator!(gmres.sol, r_vector)
+    linear_operator!(gmres.sol, r_vector) #MODIFY THIS LINE
     # Initialize
     event = initialize_gmres!(gmres)
     wait(event)
