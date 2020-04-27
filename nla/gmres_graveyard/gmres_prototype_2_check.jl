@@ -1,10 +1,10 @@
 include("gmres_prototype_v2.jl")
 using LinearAlgebra, Plots, Random
-n = 5 # size of vector space
+n = 3 # size of vector space
 Random.seed!(1235)
 b = randn(n) # rhs
 x = randn(n) # initial guess
-A = randn((n,n)) ./ sqrt(n) .* 1.0 + 0.0I
+A = randn((n,n)) ./ sqrt(n) .* 1.0
 gmres2 = ProtoRes(b)
 x = A\b
 x += randn(n) * 0.01 * maximum(abs.(x))

@@ -159,7 +159,6 @@ There seems to be type instability here associated with a loop
 """
 @kernel function arnoldi_update_kernel!(n::Int, g::MultiRes)
     I = @index(Global)
-
     @inbounds for j in 1:n
         g.H[j, n, I] = 0
         # dot products
@@ -195,7 +194,7 @@ wrapper function around arnoldi_update_kernel! for specific architectures
 - event. A KernelAbstractions object
 """
 function arnoldi_update!(n::Int, g::MultiRes; ndrange = (1), cpu_threads = Threads.nthreads(), gpu_threads = 256)
-    if isa(b, Array)
+    if isa(g.H, Array)
         kernel! = arnoldi_update_kernel!(CPU(), cpu_threads)
     else
         kernel! = arnoldi_update_kernel!(GPU(), gpu_threads)

@@ -10,32 +10,28 @@ function closure_linear_operator_multi!(A, n)
     end
 end
 
-n  = 5  # size of vector space
-ni = 3 # number of independent linear solves
+n  = 100  # size of vector space
+ni = 10 # number of independent linear solves
 Random.seed!(1235)
 b = randn(n, ni) # rhs
 x = randn(n, ni) # initial guess
 A = randn((n,n, ni)) ./ sqrt(n) .* 1.0
+for i in 1:n
+    A[i,i,:] .+= 1.0
+end
 gmres = ParallelGMRES(b)
 for i in 1:ni
     x[:,i] = A[:, :, i] \ b[:, i]
 end
 sol = copy(x)
 x += randn(n,ni) * 0.01 * maximum(abs.(x))
+y = copy(x)
 linear_operator! = closure_linear_operator_multi!(A, ni)
+solve!(x, b, linear_operator!, gmres)
 
+linear_operator!(y, x)
+println("The error is ")
+display(norm(y - b) / norm(b))
 
 ###
-# unrolled
-x_init = copy(x)
-# TODO: make this line work with CLIMA
-gmres.x .= x
-# TODO: make linear_operator! work with CLIMA
-linear_operator!(x, x_init)
-r_vector = b - x
-# Save first candidate Krylov vector
-# TODO: make this work with CLIMA
-gmres.b .= r_vector # perhaps throw in initialize?
-# Save second candidate Krylov vector
-# TODO: make linear_operator! work with CLIMA
-linear_operator!(gmres.sol, r_vector)
+plot(log.(gmres.residual)/log(10), xlabel = "iteration", ylabel = "log10 residual", title = "gmres convergence", legend = false)
