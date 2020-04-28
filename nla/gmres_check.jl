@@ -29,6 +29,22 @@ x += ArrayType(randn(n,ni) * 0.01 * maximum(abs.(x)))
 y = copy(x)
 linear_operator! = closure_linear_operator_multi!(A, ni)
 solve!(x, b, linear_operator!, gmres)
+###
+
+linear_operator!(y, x)
+println("The error is ")
+display(norm(y - b) / norm(b))
+
+# now solve again to make sure that the same structure can be
+# reused
+for i in 1:ni
+    x[:,i] = A[:, :, i] \ b[:, i]
+end
+sol = copy(x)
+x += ArrayType(randn(n,ni) * 0.01 * maximum(abs.(x)))
+y = copy(x)
+linear_operator! = closure_linear_operator_multi!(A, ni)
+solve!(x, b, linear_operator!, gmres)
 
 linear_operator!(y, x)
 println("The error is ")

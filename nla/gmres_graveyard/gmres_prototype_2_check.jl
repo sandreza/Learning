@@ -1,6 +1,6 @@
 include("gmres_prototype_v2.jl")
 using LinearAlgebra, Plots, Random
-n = 3 # size of vector space
+n = 100 # size of vector space
 Random.seed!(1235)
 b = randn(n) # rhs
 x = randn(n) # initial guess
@@ -10,6 +10,8 @@ x = A\b
 x += randn(n) * 0.01 * maximum(abs.(x))
 linear_operator! = closure_linear_operator!(A)
 r2 = solve!(x, b, linear_operator!, gmres2; iterations = length(b), residual = true)
+
+println(norm(A * x - b) / norm(b))
 
 ###
 # Now just plot the convergence rate

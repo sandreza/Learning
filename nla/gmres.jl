@@ -61,6 +61,7 @@ Constructor for the ParallelGMRES struct
 - `n`: (int) number of independent linear solves, DEFAULT = length(Qrhs[1,:])
 - `atol`: (float) absolute tolerance. DEFAULT = sqrt(eps(eltype(Qrhs)))
 - `rtol`: (float) relative tolerance. DEFAULT = sqrt(eps(eltype(Qrhs)))
+- `ArrayType`: (type). used for either using CuArrays or Arrays. DEFAULT = Array
 
 # Return
 ParalellGMRES struct
@@ -166,18 +167,40 @@ nothing
 """
 @inline function initialize_arnoldi!(gmres::ParallelGMRES, I)
     # set (almost) everything to zero to be sure
-    gmres.rhs[:, I] .= 0.0
-    gmres.Q[:,:, I] .= 0.0
-    gmres.R[:,:, I] .= 0.0
-    gmres.cs[:,  I] .= 0.0
-    gmres.H[:,:, I] .= 0.0
+    # the assumption is that gmres.k_n is small enough
+    # to where these loops don't matter that much
+
+    ft_zero = zero(eltype(gmres.H)) # float type zero
+
+    @inbounds for i in 1:(gmres.k_n + 1)
+        gmres.rhs[i, I] = ft_zero
+        @inbounds for j in 1:gmres.k_n
+            gmres.R[i,j,I] = ft_zero
+            gmres.H[i,j,I] = ft_zero
+        end
+    end
+    ######
+    # might need to be changed, but shouldn't matter
+    #=
+    @inbounds for i in 1:(2*gmres.k_n)
+        gmres.cs[i,  I] = ft_zero
+    end
+    gmres.Q[:, :, I] .= ft_zero
+    =#
+    ######
     # gmres.x was initialized as the initial x
     # gmres.sol was initialized right before this function call
     # gmres.b was initialized right before this function call
-    gmres.sol[:, I] ./= norm(gmres.b[:, I])
+    # compute norm
+    @inbounds for i in 1:gmres.m
+        gmres.rhs[1, I] += gmres.b[i, I] * gmres.b[i, I]
+    end
+    gmres.rhs[1, I] = sqrt(gmres.rhs[1, I])
     # now start computations
-    gmres.rhs[1, I]   = norm(gmres.b[:, I]) # for later
-    gmres.Q[:, 1, I] .= gmres.b[:, I] / gmres.rhs[1, I] # First Krylov vector
+    @inbounds for i in 1:gmres.m
+        gmres.sol[i, I] /= gmres.rhs[1, I]
+        gmres.Q[i, 1, I] = gmres.b[i, I] / gmres.rhs[1, I] # First Krylov vector
+    end
     return nothing
 end
 
@@ -239,8 +262,14 @@ nothing
     end
     # just to prevent some indexing errors
     if n+1 <= g.m
-        g.H[n+1, n, I] = norm(g.sol[:,I])
-        g.Q[:, n+1, I] .= g.sol[:,I] ./ g.H[n+1, n, I]
+        norm_q = 0.0
+        @inbounds for i in 1:g.m
+            norm_q += g.sol[i,I] * g.sol[i,I]
+        end
+        g.H[n+1, n, I] = sqrt(norm_q)
+        @inbounds for i in 1:g.m
+            g.Q[i, n+1, I] = g.sol[i, I] / g.H[n+1, n, I]
+        end
     end
     return nothing
 end
@@ -265,8 +294,15 @@ What is actually produced by the algorithm isn't the Q in the QR decomposition b
     @inbounds for i in 1:n
         gmres.R[i, n, I] = gmres.H[i, n, I]
     end
-    apply_rotation!(view(gmres.R, 1:n, n, I), gmres.cs, n-1, I)
-    # Now update
+
+    # apply_rotation!(view(gmres.R, 1:n, n, I), gmres.cs, n-1, I)
+    @inbounds for i in 1:n-1
+        tmp1 = gmres.cs[1 + 2*(i-1), I] * gmres.R[i, n, I] - gmres.cs[2*i, I] * gmres.R[i+1, n, I]
+        gmres.R[i+1, n, I] = gmres.cs[2*i, I] * gmres.R[i, n, I] + gmres.cs[1 + 2*(i-1), I] * gmres.R[i+1, n, I]
+        gmres.R[i, n, I] = tmp1
+    end
+
+    # Now update, cs and R
     gmres.cs[1+2*(n-1), I] = gmres.R[n, n, I]
     gmres.cs[2*n, I] = gmres.H[n+1,n, I]
     gmres.R[n, n, I] = sqrt(gmres.cs[1+2*(n-1), I]^2 + gmres.cs[2*n, I]^2)
@@ -289,6 +325,7 @@ nothing
 """
 @inline function solve_optimization!(n, gmres::ParallelGMRES, I)
     # just need to update rhs from previous iteration
+    # apply latest gibbs rotation
     tmp1 = gmres.cs[1 + 2*(n-1), I] * gmres.rhs[n, I] - gmres.cs[2*n, I] * gmres.rhs[n+1, I]
     gmres.rhs[n+1, I] = gmres.cs[2*n, I] * gmres.rhs[n, I] + gmres.cs[1 + 2*(n-1), I] * gmres.rhs[n+1, I]
     gmres.rhs[n, I] = tmp1
