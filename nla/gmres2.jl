@@ -114,14 +114,15 @@ It is assumed that the first two krylov vectors are already constructed
 # Return
 (implicitly) kernel abstractions function closure
 """
-@kernel function initialize_gmres_kernel!(gmres::ParallelGMRES)
+# m, n, k_n, residual, b, x, sol, rhs, cs, Q, H, R
+@kernel function initialize_gmres_kernel!(m, n, k_n, residual, b, x, sol, rhs, cs, Q, H, R)
     I = @index(Global)
     # Now we initialize
-    initialize_arnoldi!(gmres, I)
-    update_arnoldi!(1, gmres, I)
-    initialize_QR!(gmres, I)
-    update_QR!(1, gmres, I)
-    solve_optimization!(1, gmres, I)
+    initialize_arnoldi!(m, n, k_n, residual, b, x, sol, rhs, cs, Q, H, R, I)
+    update_arnoldi!(1, m, n, k_n, residual, b, x, sol, rhs, cs, Q, H, R, I)
+    initialize_QR!(m, n, k_n, residual, b, x, sol, rhs, cs, Q, H, R, I)
+    update_QR!(1, m, n, k_n, residual, b, x, sol, rhs, cs, Q, H, R, I)
+    solve_optimization!(1, m, n, k_n, residual, b, x, sol, rhs, cs, Q, H, R, I)
 end
 
 """
@@ -147,7 +148,7 @@ function initialize_gmres!(gmres::ParallelGMRES; ndrange = gmres.n, cpu_threads 
     else
         kernel! = initialize_gmres_kernel!(CUDA(), gpu_threads)
     end
-    event = kernel!(gmres, ndrange = ndrange)
+    event = kernel!(gmres.m, gmres.n, gmres.k_n, gmres.residual, gmres.b, gmres.x, gmres.sol, gmres.rhs, gmres.cs, gmres.Q, gmres.H, gmres.R, ndrange = ndrange)
     return event
 end
 
@@ -165,18 +166,18 @@ initialize_arnoldi!(g, I)
 # Return
 nothing
 """
-@inline function initialize_arnoldi!(gmres::ParallelGMRES, I)
+@inline function initialize_arnoldi!(m, n, k_n, residual, b, x, sol, rhs, cs, Q, H, R, I)
     # set (almost) everything to zero to be sure
     # the assumption is that gmres.k_n is small enough
     # to where these loops don't matter that much
 
-    ft_zero = zero(eltype(gmres.H)) # float type zero
+    ft_zero = zero(eltype(H)) # float type zero
 
-    @inbounds for i in 1:(gmres.k_n + 1)
-        gmres.rhs[i, I] = ft_zero
-        @inbounds for j in 1:gmres.k_n
-            gmres.R[i,j,I] = ft_zero
-            gmres.H[i,j,I] = ft_zero
+    @inbounds for i in 1:(k_n + 1)
+        rhs[i, I] = ft_zero
+        @inbounds for j in 1:k_n
+            R[i,j,I] = ft_zero
+            H[i,j,I] = ft_zero
         end
     end
     ######
@@ -193,13 +194,13 @@ nothing
     # gmres.b was initialized right before this function call
     # compute norm
     @inbounds for i in 1:gmres.m
-        gmres.rhs[1, I] += gmres.b[i, I] * gmres.b[i, I]
+        rhs[1, I] += b[i, I] * b[i, I]
     end
-    gmres.rhs[1, I] = sqrt(gmres.rhs[1, I])
+    rhs[1, I] = sqrt(rhs[1, I])
     # now start computations
-    @inbounds for i in 1:gmres.m
-        gmres.sol[i, I] /= gmres.rhs[1, I]
-        gmres.Q[i, 1, I] = gmres.b[i, I] / gmres.rhs[1, I] # First Krylov vector
+    @inbounds for i in 1:m
+        sol[i, I] /= rhs[1, I]
+        Q[i, 1, I] = b[i, I] / rhs[1, I] # First Krylov vector
     end
     return nothing
 end
@@ -217,12 +218,12 @@ initializes the QR decomposition of the UpperHesenberg Matrix
 # Return
 nothing
 """
-@inline function initialize_QR!(gmres::ParallelGMRES, I)
-    gmres.cs[1, I] = gmres.H[1,1, I]
-    gmres.cs[2, I] = gmres.H[2,1, I]
-    gmres.R[1, 1, I] = sqrt(gmres.cs[1, I]^2 + gmres.cs[2, I]^2)
-    gmres.cs[1, I] /= gmres.R[1,1, I]
-    gmres.cs[2, I] /= -gmres.R[1,1, I]
+@inline function initialize_QR!(m, n, k_n, residual, b, x, sol, rhs, cs, Q, H, R, I)
+    cs[1, I] = H[1,1, I]
+    cs[2, I] = H[2,1, I]
+    R[1, 1, I] = sqrt(cs[1, I]^2 + cs[2, I]^2)
+    cs[1, I] /= R[1,1, I]
+    cs[2, I] /= -R[1,1, I]
     return nothing
 end
 
@@ -248,34 +249,34 @@ Perform an Arnoldi iteration update
 nothing
 
 """
-@inline function update_arnoldi!(n, g::ParallelGMRES, I)
+@inline function update_arnoldi!(n, m, n1, k_n, residual, b, x, sol, rhs, cs, Q, H, R, I)
     @inbounds for j in 1:n
-        g.H[j, n, I] = 0
+        H[j, n, I] = 0
         # dot products
-        @inbounds for i in 1:g.m
-            g.H[j, n, I] += g.Q[i,j, I] * g.sol[i, I]
+        @inbounds for i in 1:m
+            H[j, n, I] += Q[i,j, I] * sol[i, I]
         end
         # orthogonalize latest Krylov Vector
-        @inbounds for i in 1:g.m
-            g.sol[i, I] -= g.H[j, n, I] * g.Q[i,j, I]
+        @inbounds for i in 1:m
+            sol[i, I] -= H[j, n, I] * Q[i,j, I]
         end
     end
     # just to prevent some indexing errors
-    if n+1 <= g.m
+    if n+1 <= m
         norm_q = 0.0
-        @inbounds for i in 1:g.m
-            norm_q += g.sol[i,I] * g.sol[i,I]
+        @inbounds for i in 1:m
+            norm_q += sol[i,I] * sol[i,I]
         end
-        g.H[n+1, n, I] = sqrt(norm_q)
-        @inbounds for i in 1:g.m
-            g.Q[i, n+1, I] = g.sol[i, I] / g.H[n+1, n, I]
+        H[n+1, n, I] = sqrt(norm_q)
+        @inbounds for i in 1:m
+            Q[i, n+1, I] = sol[i, I] / H[n+1, n, I]
         end
     end
     return nothing
 end
 
 """
-update_QR!(gmres, n, I)
+update_QR!(n, gmres, I)
 
 # Description
 Given a QR decomposition of the first n-1 columns of an upper hessenberg matrix, this computes the QR decomposition associated with the first n columns
@@ -289,25 +290,25 @@ Given a QR decomposition of the first n-1 columns of an upper hessenberg matrix,
 # Comment
 What is actually produced by the algorithm isn't the Q in the QR decomposition but rather Q^*. This is convenient since this is what is actually needed to solve the linear system
 """
-@inline function update_QR!(n, gmres::ParallelGMRES, I)
+@inline function update_QR!(n, m, n1, k_n, residual, b, x, sol, rhs, cs, Q, H, R, I)
     # Apply previous Q to new column
     @inbounds for i in 1:n
-        gmres.R[i, n, I] = gmres.H[i, n, I]
+        R[i, n, I] = H[i, n, I]
     end
 
     # apply_rotation!(view(gmres.R, 1:n, n, I), gmres.cs, n-1, I)
     @inbounds for i in 1:n-1
-        tmp1 = gmres.cs[1 + 2*(i-1), I] * gmres.R[i, n, I] - gmres.cs[2*i, I] * gmres.R[i+1, n, I]
-        gmres.R[i+1, n, I] = gmres.cs[2*i, I] * gmres.R[i, n, I] + gmres.cs[1 + 2*(i-1), I] * gmres.R[i+1, n, I]
-        gmres.R[i, n, I] = tmp1
+        tmp1 = cs[1 + 2*(i-1), I] * R[i, n, I] - cs[2*i, I] * R[i+1, n, I]
+        R[i+1, n, I] = cs[2*i, I] * R[i, n, I] + cs[1 + 2*(i-1), I] * R[i+1, n, I]
+        R[i, n, I] = tmp1
     end
 
     # Now update, cs and R
-    gmres.cs[1+2*(n-1), I] = gmres.R[n, n, I]
-    gmres.cs[2*n, I] = gmres.H[n+1,n, I]
-    gmres.R[n, n, I] = sqrt(gmres.cs[1+2*(n-1), I]^2 + gmres.cs[2*n, I]^2)
-    gmres.cs[1+2*(n-1), I] /= gmres.R[n, n, I]
-    gmres.cs[2*n, I] /= -gmres.R[n, n, I]
+    cs[1+2*(n-1), I] = R[n, n, I]
+    cs[2*n, I] = H[n+1,n, I]
+    R[n, n, I] = sqrt(cs[1+2*(n-1), I]^2 + cs[2*n, I]^2)
+    cs[1+2*(n-1), I] /= R[n, n, I]
+    cs[2*n, I] /= -R[n, n, I]
     return nothing
 end
 
@@ -323,26 +324,26 @@ Solves the optimization problem in GMRES
 # Return
 nothing
 """
-@inline function solve_optimization!(n, gmres::ParallelGMRES, I)
+@inline function solve_optimization!(n, m, n1, k_n, residual, b, x, sol, rhs, cs, Q, H, R, I)
     # just need to update rhs from previous iteration
     # apply latest gibbs rotation
-    tmp1 = gmres.cs[1 + 2*(n-1), I] * gmres.rhs[n, I] - gmres.cs[2*n, I] * gmres.rhs[n+1, I]
-    gmres.rhs[n+1, I] = gmres.cs[2*n, I] * gmres.rhs[n, I] + gmres.cs[1 + 2*(n-1), I] * gmres.rhs[n+1, I]
-    gmres.rhs[n, I] = tmp1
+    tmp1 = cs[1 + 2*(n-1), I] * rhs[n, I] - cs[2*n, I] * rhs[n+1, I]
+    rhs[n+1, I] = cs[2*n, I] * rhs[n, I] + cs[1 + 2*(n-1), I] * rhs[n+1, I]
+    rhs[n, I] = tmp1
 
     # gmres.rhs[iteration+1] is the residual
-    gmres.residual[n, I] = abs.(gmres.rhs[n+1, I])
+    residual[n, I] = abs.(rhs[n+1, I])
 
     # copy for performing the backsolve and saving gmres.rhs
     @inbounds for i in 1:n
-        gmres.sol[i, I] = gmres.rhs[i, I]
+        sol[i, I] = rhs[i, I]
     end
 
     # do the backsolve
     @inbounds for i in n:-1:1
-        gmres.sol[i, I] /= gmres.R[i,i, I]
+        sol[i, I] /= R[i,i, I]
         @inbounds for j in 1:i-1
-            gmres.sol[j, I] -= gmres.R[j,i, I] * gmres.sol[i, I]
+            sol[j, I] -= R[j,i, I] * sol[i, I]
         end
     end
 
@@ -367,11 +368,11 @@ Which is the heart of the gmres algorithm
 # Return
 kernel object from KernelAbstractions
 """
-@kernel function gmres_update_kernel!(i, gmres::ParallelGMRES)
+@kernel function gmres_update_kernel!(i, m, n, k_n, residual, b, x, sol, rhs, cs, Q, H, R)
     I = @index(Global)
-    update_arnoldi!(i, gmres, I)
-    update_QR!(i, gmres, I)
-    solve_optimization!(i, gmres, I)
+    update_arnoldi!(i, m, n, k_n, residual, b, x, sol, rhs, cs, Q, H, R, I)
+    update_QR!(i, m, n, k_n, residual, b, x, sol, rhs, cs, Q, H, R, I)
+    solve_optimization!(i, m, n, k_n, residual, b, x, sol, rhs, cs, Q, H, R, I)
 end
 
 
@@ -399,7 +400,7 @@ function gmres_update!(i, gmres; ndrange = gmres.n, cpu_threads = Threads.nthrea
     else
         kernel! = gmres_update_kernel!(CUDA(), gpu_threads)
     end
-    event = kernel!(i, gmres, ndrange = ndrange)
+    event = kernel!(i, gmres.m, gmres.n, gmres.k_n, gmres.residual, gmres.b, gmres.x, gmres.sol, gmres.rhs, gmres.cs, gmres.Q, gmres.H, gmres.R, ndrange = ndrange)
     return event
 end
 
@@ -438,13 +439,13 @@ given step i of the gmres iteration, constructs the "best" solution of the linea
 # Return
 kernel object from KernelAbstractions
 """
-@kernel function construct_solution_kernel!(i, gmres)
+@kernel function construct_solution_kernel!(i, m, n, k_n, residual, b, x, sol, rhs, cs, Q, H, R)
     M, I = @index(Global, NTuple)
-    tmp = zero(eltype(gmres.b))
+    tmp = zero(eltype(b))
     @inbounds for j in 1:i
-        tmp += gmres.Q[M, j, I] *  gmres.sol[j, I]
+        tmp += Q[M, j, I] *  sol[j, I]
     end
-    gmres.x[M , I] += tmp # since previously gmres.x held the initial value
+    x[M , I] += tmp # since previously gmres.x held the initial value
 end
 
 
@@ -472,7 +473,7 @@ function construct_solution!(i, gmres; ndrange = size(gmres.x), cpu_threads = Th
     else
         kernel! = construct_solution_kernel!(CUDA(), gpu_threads)
     end
-    event = kernel!(i, gmres, ndrange = ndrange)
+    event = kernel!(i, gmres.m, gmres.n, gmres.k_n, gmres.residual, gmres.b, gmres.x, gmres.sol, gmres.rhs, gmres.cs, gmres.Q, gmres.H, gmres.R, ndrange = ndrange)
     return event
 end
 

@@ -1,4 +1,4 @@
-function test((x,y,z)...)
+function test(("x"))
     println(y)
 end
 
@@ -16,7 +16,13 @@ function test3(:($fn))
 end
 
 for v in [:1, :2, :3, :4, :5]
-   plabel = Meta.parse("p$v")
+   flabel = Meta.parse("f$v")
    val = Meta.parse("$v")
-   @eval $plabel(x) = x + $val
+   fn = fieldnames(typeof(gmres))
+   fn = Meta.parse("$fn[1]")
+   println(val)
+   println(typeof(flabel))
+   @eval $flabel($fn) = $fn + $val
 end
+
+""

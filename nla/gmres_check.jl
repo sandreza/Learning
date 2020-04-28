@@ -1,4 +1,4 @@
-include("gmres.jl")
+include("gmres2.jl")
 using LinearAlgebra, Plots, Random, CuArrays
 
 ArrayType = Array
