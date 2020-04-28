@@ -193,7 +193,7 @@ nothing
     # gmres.sol was initialized right before this function call
     # gmres.b was initialized right before this function call
     # compute norm
-    @inbounds for i in 1:gmres.m
+    @inbounds for i in 1:m
         rhs[1, I] += b[i, I] * b[i, I]
     end
     rhs[1, I] = sqrt(rhs[1, I])
