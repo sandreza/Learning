@@ -24,5 +24,3 @@ for v in [:1, :2, :3, :4, :5]
    println(typeof(flabel))
    @eval $flabel($fn) = $fn + $val
 end
-
-""
