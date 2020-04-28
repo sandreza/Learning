@@ -145,7 +145,7 @@ function initialize_gmres!(gmres::ParallelGMRES; ndrange = gmres.n, cpu_threads 
     if isa(gmres.b, Array)
         kernel! = initialize_gmres_kernel!(CPU(), cpu_threads)
     else
-        kernel! = initialize_gmres_kernel!(GPU(), gpu_threads)
+        kernel! = initialize_gmres_kernel!(CUDA(), gpu_threads)
     end
     event = kernel!(gmres, ndrange = ndrange)
     return event
@@ -397,7 +397,7 @@ function gmres_update!(i, gmres; ndrange = gmres.n, cpu_threads = Threads.nthrea
     if isa(gmres.b, Array)
         kernel! = gmres_update_kernel!(CPU(), cpu_threads)
     else
-        kernel! = gmres_update_kernel!(GPU(), gpu_threads)
+        kernel! = gmres_update_kernel!(CUDA(), gpu_threads)
     end
     event = kernel!(i, gmres, ndrange = ndrange)
     return event
@@ -470,7 +470,7 @@ function construct_solution!(i, gmres; ndrange = size(gmres.x), cpu_threads = Th
     if isa(gmres.b, Array)
         kernel! = construct_solution_kernel!(CPU(), cpu_threads)
     else
-        kernel! = construct_solution_kernel!(GPU(), gpu_threads)
+        kernel! = construct_solution_kernel!(CUDA(), gpu_threads)
     end
     event = kernel!(i, gmres, ndrange = ndrange)
     return event
