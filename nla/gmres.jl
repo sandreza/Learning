@@ -509,7 +509,8 @@ function solve!(x, b, linear_operator!, gmres::ParallelGMRES; iterations = gmres
     # Now we can actually start on the iterations
     @inbounds for i in 2:iterations
         # TODO: make linear_operator! work with CLIMA
-        linear_operator!(gmres.sol, view(gmres.Q, :, i, :))
+        x[:] .= gmres.Q[ :, i, : ][ : ]
+        linear_operator!(gmres.sol, )
         event = gmres_update!(i, gmres)
         wait(event)
     end
