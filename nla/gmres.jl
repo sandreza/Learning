@@ -47,7 +47,7 @@ struct ParallelGMRES{ℱ, 𝒮, 𝒯, 𝒱}
     R::𝒯 # A factor of two in memory can be saved here
 end
 
-Adapt.adapt_structure(to, x::ParallelGMRES) = ParallelGMRES(x.atol, x.rtol,x.m, x.n, x.k_n,  adapt(to, x.residual),  adapt(to, x.b),  adapt(to, x.x),  adapt(to, x.sol), adapt(to, x.rhs),  adapt(to, x.cs),  adapt(to, x.Q),  adapt(to, x.H),  adapt(to, x.R))
+Adapt.adapt_structure(to, x::ParallelGMRES) = ParallelGMRES(x.atol, x.rtol, x.m, x.n, x.k_n, adapt(to, x.residual), adapt(to, x.b), adapt(to, x.x),  adapt(to, x.sol), adapt(to, x.rhs), adapt(to, x.cs),  adapt(to, x.Q),  adapt(to, x.H), adapt(to, x.R))
 
 """
 ParallelGMRES(Qrhs; m = length(Qrhs[:,1]), n = length(Qrhs[1,:]), subspace_size = m, atol = sqrt(eps(eltype(Qrhs))), rtol = sqrt(eps(eltype(Qrhs))) )
