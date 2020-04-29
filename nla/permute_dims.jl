@@ -143,4 +143,4 @@ function convert_structure!(x, y, reshape_tuple, permute_tuple)
     return nothing
 end
 
-convert_structure!(a, b, size(b), (3, 2, 1))
+@btime convert_structure!(a, b, size(b), (3, 2, 1))
