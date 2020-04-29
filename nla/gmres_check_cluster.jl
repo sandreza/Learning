@@ -1,5 +1,5 @@
 include("gmres.jl")
-using LinearAlgebra, Plots, Random, CuArrays
+using LinearAlgebra, Random, CuArrays
 
 ArrayType = CuArray
 
@@ -18,7 +18,7 @@ function multiply_by_A!(x, A, y, n1, n2; ndrange = size(x[1,:]), cpu_threads = T
     if isa(x,Array)
         kernel! = multiply_A_kernel!(CPU(), cpu_threads)
     else
-        kernel! = multiply_A_kernel!(GPU(), gpu_threads)
+        kernel! = multiply_A_kernel!(CUDA(), gpu_threads)
     end
     return kernel!(x, A, y, n1, n2, ndrange = ndrange)
 end
@@ -63,7 +63,6 @@ end
 sol = copy(x)
 x += ArrayType(randn(n,ni) * 0.01 * maximum(abs.(x)))
 y = copy(x)
-linear_operator! = closure_linear_operator_multi!(A, ni)
 solve!(x, b, linear_operator!, gmres)
 
 linear_operator!(y, x)
