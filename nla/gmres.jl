@@ -134,7 +134,7 @@ function initialize_gmres!(gmres::ParallelGMRES; ndrange = gmres.n, cpu_threads 
     else
         kernel! = initialize_gmres_kernel!(CUDA(), gpu_threads)
     end
-    event = kernel!(gmres.m, gmres.n, gmres.k_n, gmres.residual, gmres.b, gmres.x, gmres.sol, gmres.rhs, gmres.cs, gmres.Q, gmres.H, gmres.R, ndrange = ndrange)
+    event = kernel!(gmres, ndrange = ndrange)
     return event
 end
 
@@ -159,9 +159,9 @@ nothing
 
     ft_zero = zero(eltype(gmres.H)) # float type zero
 
-    @inbounds for i in 1:(k_n + 1)
+    @inbounds for i in 1:(gmres.k_n + 1)
         gmres.rhs[i, I] = ft_zero
-        @inbounds for j in 1:k_n
+        @inbounds for j in 1:gmres.k_n
             gmres.R[i,j,I] = ft_zero
             gmres.H[i,j,I] = ft_zero
         end
