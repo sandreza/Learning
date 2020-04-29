@@ -495,23 +495,30 @@ function solve!(x, b, linear_operator!, gmres::ParallelGMRES; iterations = gmres
     x_init = copy(x)
     # TODO: make this line work with CLIMA
     gmres.x .= x # MODIFY THIS LINE
+    # convert_structure!(gmres.x, x, reshape_tuple, permute_tuple)
     # TODO: make linear_operator! work with CLIMA
     linear_operator!(x, x_init)
     r_vector = b - x
     # Save first candidate Krylov vector
     # TODO: make this work with CLIMA
     gmres.b .= r_vector # MODIFY THIS LINE
+    # convert_structure!(gmres.b, r_vector, reshape_tuple, permute_tuple)
     # Save second candidate Krylov vector
     # TODO: make linear_operator! work with CLIMA
-    linear_operator!(gmres.sol, r_vector) #MODIFY THIS LINE
+    linear_operator!(x, r_vector)
+    gmres.sol .= x #MODIFY THIS LINE
+    # convert_structure!(gmres.sol, x, reshape_tuple, permute_tuple)
     # Initialize
     event = initialize_gmres!(gmres)
     wait(event)
     # Now we can actually start on the iterations
     @inbounds for i in 2:iterations
         # TODO: make linear_operator! work with CLIMA
-        x[:] .= gmres.Q[ :, i, : ][ : ]
-        linear_operator!(gmres.sol, x)
+        r_vector[:] .= gmres.Q[ :, i, : ][ : ]
+        # convert_structure!(r_vector, view(Q, :, i, :), reshape_tuple_f, permute_tuple_f)
+        linear_operator!(x, r_vector)
+        gmres.sol .= x
+        # convert_structure!(gmres.sol, x, reshape_tuple, permute_tuple)
         event = gmres_update!(i, gmres)
         wait(event)
     end
@@ -521,5 +528,16 @@ function solve!(x, b, linear_operator!, gmres::ParallelGMRES; iterations = gmres
     # note that if we don't wait for the event to finish
     # the following line may not work as expected
     x .= gmres.x
+    # convert_structure!(x, gmres.x, reshape_tuple_f, permute_tuple_f)
     return nothing
 end
+
+
+#=
+function convert_structure!(x, y, reshape_tuple, permute_tuple)
+    alias_y = reshape(y, reshape_tuple)
+    permute_y = permutedims(alias_y, permute_tuple)
+    x[:] .= permute_y[:]
+    return nothing
+end
+=#

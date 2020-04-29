@@ -31,7 +31,7 @@ function closure_linear_operator_multi!(A, n1, n2, n3)
     end
 end
 
-n  = 10  # size of vector space
+n  = 100  # size of vector space
 ni = 10 # number of independent linear solves
 Random.seed!(1235)
 b = ArrayType(randn(n, ni)) # rhs

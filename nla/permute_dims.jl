@@ -127,10 +127,20 @@ wait(event)
 println(a[1,3,4] - b[4,3,1])
 c = permutedims(b, (3,2,1))
 norm(c-a)
-
+#=
 @benchmark wait(rearrange_2!(a, b, permutation = (3, 2, 1)))
 @benchmark permutedims(b, (3,2,1))
 
 @benchmark permutedims!(a, b, (3,2,1))
 
 @benchmark c[:] .= b[:]
+=#
+
+function convert_structure!(x, y, reshape_tuple, permute_tuple)
+    alias_y = reshape(y, reshape_tuple)
+    permute_y = permutedims(alias_y, permute_tuple)
+    x[:] .= permute_y[:]
+    return nothing
+end
+
+convert_structure!(a, b, size(b), (3, 2, 1))
