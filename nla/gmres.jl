@@ -427,7 +427,7 @@ kernel object from KernelAbstractions
 """
 @kernel function construct_solution_kernel!(i, gmres)
     M, I = @index(Global, NTuple)
-    tmp = zero(eltype(b))
+    tmp = zero(eltype(gmres.b))
     @inbounds for j in 1:i
         tmp += gmres.Q[M, j, I] *  gmres.sol[j, I]
     end
