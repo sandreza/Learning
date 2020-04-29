@@ -99,7 +99,8 @@ b = randn(5,4,3)
 event = rearrange_2!(a, b, permutation = (3, 2, 1))
 wait(event)
 println(a[1,3,4] - b[4,3,1])
-
+c = permutedims(b, (3,2,1))
+norm(c-a)
 
 c = zeros(length(b))
 event = rearrange_2!(c, b, permutation = (3, 2, 1))
@@ -114,3 +115,22 @@ permutation = (3,2,1)
 
 permuted_ndrange = [size(x)...]
 permute!(permuted_ndrange, [permutation...])
+
+
+
+###
+cc = 4
+a = randn(3*8*cc,4*8*cc,5*8*cc)
+b = randn(5*8*cc,4*8*cc,3*8*cc)
+event = rearrange_2!(a, b, permutation = (3, 2, 1))
+wait(event)
+println(a[1,3,4] - b[4,3,1])
+c = permutedims(b, (3,2,1))
+norm(c-a)
+
+@benchmark wait(rearrange_2!(a, b, permutation = (3, 2, 1)))
+@benchmark permutedims(b, (3,2,1))
+
+@benchmark permutedims!(a, b, (3,2,1))
+
+@benchmark c[:] .= b[:]
