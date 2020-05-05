@@ -1,5 +1,5 @@
 using KernelAbstractions, Random, LinearAlgebra
-using BenchmarkTools
+using BenchmarkTools, Adapt
 
 ###
 function c_backsolve!(vector, matrix, n, index_set)
@@ -78,7 +78,7 @@ end
 
 ###
 n = 100
-dupl = (10^4,1)
+dupl = (10^4, 1)
 Random.seed!(1234)
 x = randn((n,dupl...))
 b = copy(x)

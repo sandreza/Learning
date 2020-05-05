@@ -38,9 +38,10 @@ b = ArrayType(randn(n, ni)) # rhs
 x = ArrayType(randn(n, ni)) # initial guess
 A = ArrayType(randn((n,n, ni)) ./ sqrt(n) .* 1.0)
 for i in 1:n
-    A[i,i,:] .+= 0.0
+    A[i,i,:] .+= 1.0
 end
-gmres = ParallelGMRES(b, ArrayType=ArrayType)
+ss = size(gmres.b)[1]
+gmres = ParallelGMRES(b, ArrayType = ArrayType, subspace_size = ss)
 for i in 1:ni
     x[:,i] = A[:, :, i] \ b[:, i]
 end

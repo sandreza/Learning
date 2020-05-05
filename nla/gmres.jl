@@ -13,14 +13,14 @@ Launches n independent GMRES solves
 - n::𝒮 (int) number of independent GMRES
 - k_n::𝒮 (int) Krylov Dimension for each GMRES. It is also the number of GMRES iterations before nuking the subspace
 - residual::𝒱 (vector) residual values for each independent linear solve
-- b::𝒱 (vector) permutation of the rhs
-- x::𝒱 (vector) permutation of the initial guess
+- b::𝒱 (vector) permutation of the rhs. probably can be removed if memory is an issue
+- x::𝒱 (vector) permutation of the initial guess. probably can be removed if memory is an issue
 - sol::𝒱 (vector) solution vector, it is used twice. First to represent Aqⁿ (the latest Krylov vector without being normalized), the second to represent the solution to the linear system
-- rhs::𝒱 (vector) rhs vector
+- rhs::𝒱 (vector) rhs vector.
 - cs::𝒱 (vector) Sequence of Gibbs Rotation matrices in compact form. This is implicitly the Qᵀ of the QR factorization of the upper hessenberg matrix H.
-- H::𝒯 (array) Upper Hessenberg Matrix
+- H::𝒯 (array) Upper Hessenberg Matrix. A factor of two in memory can be saved here.
 - Q::𝒯 (array) Orthonormalized Krylov Subspace
-- R::𝒯 (array) The R of the QR factorization of the UpperHessenberg matrix H
+- R::𝒯 (array) The R of the QR factorization of the UpperHessenberg matrix H. A factor of 2 or so in memory can be saved here
 
 # Intended Use
 Solving n linear systems iteratively
@@ -43,10 +43,11 @@ struct ParallelGMRES{ℱ, 𝒮, 𝒯, 𝒱}
     rhs::𝒱
     cs::𝒱
     Q::𝒯
-    H::𝒯  # A factor of two in memory can be saved here
-    R::𝒯 # A factor of two in memory can be saved here
+    H::𝒯
+    R::𝒯
 end
 
+# Adapt is necessary to pass the struct into GPU kernels
 Adapt.adapt_structure(to, x::ParallelGMRES) = ParallelGMRES(x.atol, x.rtol, x.m, x.n, x.k_n, adapt(to, x.residual), adapt(to, x.b), adapt(to, x.x),  adapt(to, x.sol), adapt(to, x.rhs), adapt(to, x.cs),  adapt(to, x.Q),  adapt(to, x.H), adapt(to, x.R))
 
 """
@@ -91,7 +92,8 @@ Initializes the gmres struct by calling
 - initialize_arnoldi
 - initialize_QR!
 - update_arnoldi!
-- update_QR
+- update_QR!
+- solve_optimization!
 It is assumed that the first two krylov vectors are already constructed
 
 # Arguments
@@ -103,7 +105,6 @@ It is assumed that the first two krylov vectors are already constructed
 # m, n, k_n, residual, b, x, sol, rhs, cs, Q, H, R
 @kernel function initialize_gmres_kernel!(gmres)
     I = @index(Global)
-    # Now we initialize
     initialize_arnoldi!(gmres, I)
     update_arnoldi!(1, gmres, I)
     initialize_QR!(gmres, I)
@@ -156,7 +157,6 @@ nothing
     # set (almost) everything to zero to be sure
     # the assumption is that gmres.k_n is small enough
     # to where these loops don't matter that much
-
     ft_zero = zero(eltype(gmres.H)) # float type zero
 
     @inbounds for i in 1:(gmres.k_n + 1)
@@ -166,15 +166,6 @@ nothing
             gmres.H[i,j,I] = ft_zero
         end
     end
-    ######
-    # might need to be changed, but shouldn't matter
-    #=
-    @inbounds for i in 1:(2*gmres.k_n)
-        gmres.cs[i,  I] = ft_zero
-    end
-    gmres.Q[:, :, I] .= ft_zero
-    =#
-    ######
     # gmres.x was initialized as the initial x
     # gmres.sol was initialized right before this function call
     # gmres.b was initialized right before this function call
@@ -236,27 +227,25 @@ nothing
 
 """
 @inline function update_arnoldi!(n, gmres, I)
+    # make new Krylov Vector orthogonal to previous ones
     @inbounds for j in 1:n
         gmres.H[j, n, I] = 0
         # dot products
         @inbounds for i in 1:gmres.m
-            gmres.H[j, n, I] += gmres.Q[i,j, I] * gmres.sol[i, I]
+            gmres.H[j, n, I] += gmres.Q[i, j, I] * gmres.sol[i, I]
         end
         # orthogonalize latest Krylov Vector
         @inbounds for i in 1:gmres.m
             gmres.sol[i, I] -= gmres.H[j, n, I] * gmres.Q[i,j, I]
         end
     end
-    # just to prevent some indexing errors
-    if n+1 <= gmres.m
-        norm_q = 0.0
-        @inbounds for i in 1:gmres.m
-            norm_q += gmres.sol[i,I] * gmres.sol[i,I]
-        end
-        gmres.H[n+1, n, I] = sqrt(norm_q)
-        @inbounds for i in 1:gmres.m
-            gmres.Q[i, n+1, I] = gmres.sol[i, I] / gmres.H[n+1, n, I]
-        end
+    norm_q = 0.0
+    @inbounds for i in 1:gmres.m
+        norm_q += gmres.sol[i,I] * gmres.sol[i,I]
+    end
+    gmres.H[n+1, n, I] = sqrt(norm_q)
+    @inbounds for i in 1:gmres.m
+        gmres.Q[i, n+1, I] = gmres.sol[i, I] / gmres.H[n+1, n, I]
     end
     return nothing
 end
@@ -281,14 +270,12 @@ What is actually produced by the algorithm isn't the Q in the QR decomposition b
     @inbounds for i in 1:n
         gmres.R[i, n, I] = gmres.H[i, n, I]
     end
-
     # apply_rotation!(view(gmres.R, 1:n, n, I), gmres.cs, n-1, I)
     @inbounds for i in 1:n-1
         tmp1 = gmres.cs[1 + 2*(i-1), I] * gmres.R[i, n, I] - gmres.cs[2*i, I] * gmres.R[i+1, n, I]
         gmres.R[i+1, n, I] = gmres.cs[2*i, I] * gmres.R[i, n, I] + gmres.cs[1 + 2*(i-1), I] * gmres.R[i+1, n, I]
         gmres.R[i, n, I] = tmp1
     end
-
     # Now update, cs and R
     gmres.cs[1+2*(n-1), I] = gmres.R[n, n, I]
     gmres.cs[2*n, I] = gmres.H[n+1,n, I]
@@ -316,15 +303,12 @@ nothing
     tmp1 = gmres.cs[1 + 2*(n-1), I] * gmres.rhs[n, I] - gmres.cs[2*n, I] * gmres.rhs[n+1, I]
     gmres.rhs[n+1, I] = gmres.cs[2*n, I] * gmres.rhs[n, I] + gmres.cs[1 + 2*(n-1), I] * gmres.rhs[n+1, I]
     gmres.rhs[n, I] = tmp1
-
-    # gmres.rhs[iteration+1] is the residual
+    # gmres.rhs[iteration+1] is the residual. Technically convergence should be checked here.
     gmres.residual[n, I] = abs.(gmres.rhs[n+1, I])
-
     # copy for performing the backsolve and saving gmres.rhs
     @inbounds for i in 1:n
         gmres.sol[i, I] = gmres.rhs[i, I]
     end
-
     # do the backsolve
     @inbounds for i in n:-1:1
         gmres.sol[i, I] /= gmres.R[i,i, I]
@@ -332,7 +316,6 @@ nothing
             gmres.sol[j, I] -= gmres.R[j,i, I] * gmres.sol[i, I]
         end
     end
-
     return nothing
 end
 
@@ -388,28 +371,6 @@ function gmres_update!(i, gmres; ndrange = gmres.n, cpu_threads = Threads.nthrea
     end
     event = kernel!(i, gmres, ndrange = ndrange)
     return event
-end
-
-# Several utility functions
-"""
-apply_rotation!(vector, cs, n, I)
-# Description
-Apply sequences of givens rotation with compact representation given by cs
-# Arguments
-- `vector`: (vector) [OVERWITTEN]
-- `cs`: (vector)
-- `n`: (int)
-- `I`: (int) thread index
-# Return
-Nothing
-"""
-@inline function apply_rotation!(vector, cs, n, I)
-    @inbounds for i in 1:n
-        tmp1 = cs[1 + 2*(i-1), I] * vector[i, I] - cs[2*i, I] * vector[i+1, I]
-        vector[i+1, I] = cs[2*i, I] * vector[i, I] + cs[1 + 2*(i-1), I] * vector[i+1, I]
-        vector[i, I] = tmp1
-    end
-    return nothing
 end
 
 """
@@ -495,6 +456,7 @@ function solve!(x, b, linear_operator!, gmres::ParallelGMRES; iterations = gmres
     gmres.sol .= x #MODIFY THIS LINE
     # convert_structure!(gmres.sol, x, reshape_tuple, permute_tuple)
     # Initialize
+
     event = initialize_gmres!(gmres)
     wait(event)
     # Now we can actually start on the iterations
@@ -508,6 +470,7 @@ function solve!(x, b, linear_operator!, gmres::ParallelGMRES; iterations = gmres
         event = gmres_update!(i, gmres)
         wait(event)
     end
+    
     event = construct_solution!(iterations, gmres)
     wait(event)
     # TODO: make the following line work with CLIMA
