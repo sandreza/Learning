@@ -12,7 +12,7 @@ end_n = floor(Int, n/4)
 end_n2 = floor(Int, n/2)
 subsample = 1:10:end_n
 
-x_data = x[subsample]
+x_data = x[subsample] 
 y_data = y[subsample]
 const γ1 = 0.0001
 const σ1 = 10^6.0
@@ -56,8 +56,8 @@ for i in 1:(n-1)
 end
 
 
-x_lorenz_truth = [y[i][1] for i in indices]
-x_lorenz_prediction = [gpr_prediction[i][1] for i in 1:n]
+x_lorenz_truth = [y[i][3] for i in indices]
+x_lorenz_prediction = [gpr_prediction[i][3] for i in 1:n]
 tvals = t[indices]
 plot(tvals, x_lorenz_truth, label = "truth", xlabel = "time", ylabel = "x", title = "Lorenz equation prediction")
 plot!(tvals, x_lorenz_prediction, label = "prediction")

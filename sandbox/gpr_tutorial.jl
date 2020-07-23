@@ -31,7 +31,7 @@ end #kernel matrix
 heatmap(kmat, title = "Correlation Matrix")
 
 L = cholesky(kmat) #need to take ``square root" of the matrix for the change of variables formula
-gprvecs = L.L*gprvec    #smooth gpr vec
+gprvecs = L.L * gprvec    #smooth gpr vec
 
 p2 = plot(tval, gprvecs, title = "Correlated GP", xlabel = "time", ylabel = "position", grid = true, gridstyle = :dash, gridalpha = 0.25, framestyle = :box, legend = false, layout = 4)
 

@@ -12,6 +12,7 @@ function uniform_grid(n,a,b)
 end
 tval = uniform_grid(n, 0, T)
 tvalf = uniform_grid(nn, 0, T)
+tef = uniform_grid(20, T, T+10)
 
 #we can assume this correlation matrix (or we can change this out for whatever)
 γ = 1.0 #a 'hyperparameter', the value 1.0 works well for this example. Try gamma = 10.0 and 0.1 to see more
@@ -32,7 +33,7 @@ end
 
 #the function that we will be interploting
 function g(x)
-    return sin(x+pi/1.4)
+    return sin(1 * (x+pi/1.4) )
 end
 
 yval = g.(tval)
@@ -84,6 +85,26 @@ for i in 1:nn
     var[i] = k(tvalf[i],tvalf[i]) - dot(tmpv[:,i],tmpv2[:,i])
 end
 
-scatter(tval, yval, color = :red, title = "Interpolant and Data", xlabel = "time", ylabel = "position" , label = "data")
+p1 = scatter(tval, yval, color = :red, title = "Interpolant and Data", xlabel = "time", ylabel = "position" , label = "data")
 plot!(tvalf, interpol, color = :orange, line = :dashed, label = "uncertainty", ribbon = var, width = 0.1)
 plot!(tvalf, interpol, color = :blue, line = :dashed, label = "interpolant", width = 1)
+plot!(tvalf, g.(tvalf), label = "Real Data")
+display(p1)
+
+
+extrapolated = [ gpr_mean(tef[i],tval,scoeff) for i in eachindex(tef)]
+
+evar = zeros(length(tef))
+for i in eachindex(tef)
+    for j in 1:n
+        tmpv[j,i] = k(tef[i],tval[j]) #evaluate the kernel at this particular location
+    end
+    tmpv2[:,i] = kmat\tmpv[:,i]
+    evar[i] = k(tef[i],tef[i]) - dot(tmpv[:,i],tmpv2[:,i])
+end
+
+tmp = g.(tef)
+plot!(tef, extrapolated, ribbon = evar, label = "Extrapolated GPR" , legend = false, ylims = (-1,1))
+plot!(tef,  tmp, label = "True Function ")
+
+##

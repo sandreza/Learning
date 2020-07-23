@@ -13,9 +13,12 @@ m,n = size(data.T)
 gp = 16 #gridpoints
 zavg = avg(data.z, gp)
 x = [avg(data.T[:,j], gp) for j in 1:(n-1)]
+
+∂t(T) = - ∂z(wT) +  ∂z(∂z(T))
+T(n+1) = T(n) + Δt * (- ∂z(wT) +  ∂z(∂z(T)))
+# Gp = -∂z(wT)
+# y = T(n+1) - T(n) - Δt * ∂z(∂z(T))
 y = [avg(data.T[:,j], gp) for j in 2:n]
-
-
 
 ##
 n = length(t)
@@ -28,6 +31,7 @@ y_data = y[training_set]
 # these are the hyperparameter nobs
 const γ1 = 0.0001
 const σ1 = 1.0
+# this is norm(x,y) but more efficient
 function custom_amplitude(x,y)
     ll = 0.0
     @inbounds for k in 1:16
@@ -38,7 +42,7 @@ end
 k(x,y) = σ1 * exp(- γ1 * custom_amplitude(x,y) )
 d(x,y) = norm(x-y)^2
 cc = closure_guassian_closure(d, hyperparameters = [γ1,σ1])
-𝒢 = construct_gpr(x_data, y_data, k)
+𝒢 = construct_gpr(x_data, y_data, k);
 
 index_check = 1
 y_prediction = prediction([x_data[index_check]], 𝒢)
