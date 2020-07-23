@@ -14,8 +14,8 @@ gp = 16 #gridpoints
 zavg = avg(data.z, gp)
 x = [avg(data.T[:,j], gp) for j in 1:(n-1)]
 
-∂t(T) = - ∂z(wT) +  ∂z(∂z(T))
-T(n+1) = T(n) + Δt * (- ∂z(wT) +  ∂z(∂z(T)))
+# ∂t(T) = - ∂z(wT) +  ∂z(∂z(T))
+# T(n+1) = T(n) + Δt * (- ∂z(wT) +  ∂z(∂z(T)))
 # Gp = -∂z(wT)
 # y = T(n+1) - T(n) - Δt * ∂z(∂z(T))
 y = [avg(data.T[:,j], gp) for j in 2:n]
