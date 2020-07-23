@@ -18,7 +18,7 @@ const γ1 = 0.0001
 const σ1 = 10^6.0
 k(x,y) = σ1 * exp(- γ1 * norm(x-y)^2 )
 d(x,y) = norm(x-y)^2
-cc = closure_guassian_closure(d, hyperparameters = [γ1,σ1])
+cc = closure_guassian_closure(d, hyperparameters = [γ1, σ1])
 𝒢 = construct_gpr(x_data, y_data, k)
 
 index_check = 1

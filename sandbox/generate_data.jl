@@ -18,8 +18,8 @@ scatter(sol[1:100:end],vars=(1))
 x = [sol.u[i][1] for i in eachindex(sol.u) ]
 y = [sol.u[i][2] for i in eachindex(sol.u) ]
 z = [sol.u[i][3] for i in eachindex(sol.u) ]
-histogram(z)
 
+histogram(z[1:10:10^6])
 
 x = sol.u[1:end-1]
 y = sol.u[2:end]
@@ -27,7 +27,7 @@ t = sol.t
 @save "./data/Lorenz63.jld2" x y p t
 
 
-###
+##
 using DifferentialEquations
 using Plots
 using JLD2

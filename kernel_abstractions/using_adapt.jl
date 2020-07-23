@@ -1,6 +1,6 @@
 using KernelAbstractions, Random, LinearAlgebra
 using BenchmarkTools, Adapt
-using CUDAapi
+using CUDAapi, CuArrays
 
 @kernel function basic!(a)
     I = @index(Global)

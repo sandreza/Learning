@@ -17,7 +17,7 @@ y = [avg(data.T[:,j], gp) for j in 2:n]
 
 
 
-###
+##
 n = length(t)
 total_set = 1:(n-1)
 training_set = 1:4:(n-1) # 25% of the data, but the entire interval
@@ -88,51 +88,3 @@ end
 if save_figure == true
     gif(anim, pwd() * "/figures/gp_emulator.gif", fps = 15)
 end
-
-
-###
-mat = [k(x_data[i], x_data[j]) for i in eachindex(x_data), j in eachindex(x_data)]
-tmp = [prediction([x[i]], 𝒢) for i in eachindex(x)]
-tmp = [uncertainty(x[i], 𝒢) for i in eachindex(x)]
-
-𝒢.K .- mat
-
-###
-k(x,y) = σ1 * exp(- γ1 * norm(x-y)^2 )
-
-function customamp(x,y)
-    ll = 0.0
-    for k in 1:16
-        ll += (x[k]-y[k])^2
-    end
-    return ll
-end
-
-function new_prediction(x, 𝒢)
-    tmpv = zeros(Float64, 16)
-    @inbounds for j in 1:288
-        tmpval = σ1 * exp(- γ1 * customamp(x, 𝒢.data[j]))
-        @inbounds for i in 1:16
-            tmpv[i] += 𝒢.predictor[j,i] * tmpval
-        end
-    end
-    return tmpv
-end
-
-function new_prediction2(x, 𝒢)
-    tmpv = zeros(Float64, 16)
-    @inbounds for j in 1:288
-        tmpval = 𝒢.kernel(x, 𝒢.data[j])
-        @inbounds for i in 1:16
-            tmpv[i] += 𝒢.predictor[j,i] * tmpval
-        end
-    end
-    return tmpv
-end
-
-
-
-tmpvc = 𝒢.predictor' * 𝒢.kernel.([x[1]], 𝒢.data)
-
-
-for i in 1:10

@@ -16,7 +16,7 @@ tvalf = uniform_grid(nn, 0, T)
 #we can assume this correlation matrix (or we can change this out for whatever)
 γ = 1.0 #a 'hyperparameter', the value 1.0 works well for this example. Try gamma = 10.0 and 0.1 to see more
 σ = 500.0 #a 'hyperparameter', the value 500 works well for this example.
-δ = 0.0
+δ = 0.05
 function k(x,y; σ=500.0, γ = 1.0, δ = 0.00)
     z = σ*exp(-(x-y)^2 / 2^2 / γ^2)
     #z = 0.5*np.exp(-np.abs(x-y) / 2 / gamma)
